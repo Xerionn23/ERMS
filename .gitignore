@@ -1,0 +1,15 @@
+# Dependencies
+/vendor/
+
+# Generated exports
+/export_nuero/
+
+# Local runtime / generated files
+/auth/remarks_index.txt
+
+# OS / editor
+.DS_Store
+Thumbs.db
+
+# Composer
+/composer.phar

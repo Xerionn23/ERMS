@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ERMS Dashboard Guide</title>
+    <link rel="stylesheet" href="dashboard-guide.css" />
+</head>
+<body>
+    <div class="layout">
+        <aside class="sidebar" aria-label="Sidebar Navigation">
+            <div class="sidebar-top">
+                <div class="brand">
+                    <div class="brand-logo" aria-hidden="true"></div>
+                    <div class="brand-text">
+                        <div class="brand-title">ERMS</div>
+                        <div class="brand-subtitle">Brain Master</div>
+                    </div>
+                </div>
+            </div>
+
+            <nav class="nav">
+                <a class="nav-item is-active" href="#">Dashboard</a>
+                <a class="nav-item" href="#">User Management</a>
+                <a class="nav-item" href="#">Patient Management</a>
+                <a class="nav-item" href="#">Reports &amp; Analytics</a>
+            </nav>
+
+            <div class="sidebar-bottom">
+                <div class="profile">
+                    <div class="avatar">SA</div>
+                    <div class="profile-text">
+                        <div class="profile-name">System Admin</div>
+                        <div class="profile-role">Administrator</div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <div class="main">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <button class="menu-btn" type="button" aria-label="Toggle navigation" onclick="document.body.classList.toggle('sidebar-open')">
+                        ☰
+                    </button>
+                    <div class="page-title">
+                        <div class="page-title-main">Admin Dashboard</div>
+                        <div class="page-title-sub">Comprehensive system overview</div>
+                    </div>
+                </div>
+
+                <div class="topbar-right">
+                    <button class="primary-btn" type="button">Refresh</button>
+                </div>
+            </header>
+
+            <main class="content">
+                <section class="section">
+                    <div class="section-title">Overview</div>
+                    <div class="cards">
+                        <div class="card">
+                            <div class="card-icon blue"></div>
+                            <div class="card-body">
+                                <div class="card-label">Total Patients</div>
+                                <div class="card-value">138</div>
+                                <div class="card-footnote">All Types in database</div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-icon green"></div>
+                            <div class="card-body">
+                                <div class="card-label">Total Users</div>
+                                <div class="card-value">10</div>
+                                <div class="card-footnote">All Roles registered</div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-icon orange"></div>
+                            <div class="card-body">
+                                <div class="card-label">Medicines</div>
+                                <div class="card-value">26</div>
+                                <div class="card-footnote">In Stock inventory</div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-icon purple"></div>
+                            <div class="card-body">
+                                <div class="card-label">Appointments</div>
+                                <div class="card-value">13</div>
+                                <div class="card-footnote">Scheduled total</div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="section">
+                    <div class="section-head">
+                        <div class="section-title">Recent Registrations</div>
+                        <a class="section-link" href="#">View All</a>
+                    </div>
+
+                    <div class="panel">
+                        <div class="row">
+                            <div class="chip">CA</div>
+                            <div class="row-text">
+                                <div class="row-main">cadornajee@gmail.com</div>
+                                <div class="row-sub">Dean • Recently</div>
+                            </div>
+                            <div class="badge">Active</div>
+                        </div>
+                        <div class="row">
+                            <div class="chip purple">RO</div>
+                            <div class="row-text">
+                                <div class="row-main">rotchercadorna123@gmail.com</div>
+                                <div class="row-sub">Student • Recently</div>
+                            </div>
+                            <div class="badge">Active</div>
+                        </div>
+                        <div class="row">
+                            <div class="chip orange">NU</div>
+                            <div class="row-text">
+                                <div class="row-main">nurse</div>
+                                <div class="row-sub">Nurse • Recently</div>
+                            </div>
+                            <div class="badge">Active</div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+
+        <div class="backdrop" onclick="document.body.classList.remove('sidebar-open')"></div>
+    </div>
+</body>
+</html>
