@@ -10,6 +10,77 @@ $userInitials = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $userName),
 if ($userInitials === '') {
     $userInitials = 'U';
 }
+
+$jubecerLicenseAlerts = [];
+$jubecerSummary = [
+    'total_guards' => 0,
+    'guards_with_missing' => 0,
+    'guards_with_expired_license' => 0,
+    'guards_with_expiring_license' => 0,
+];
+if (!$isBrainMaster) {
+    require_once __DIR__ . '/../includes/db.php';
+    try {
+        $pdo = db();
+
+        $summarySql = "
+SELECT
+    COUNT(*) AS total_guards,
+    SUM(CASE WHEN t.missing_count > 0 THEN 1 ELSE 0 END) AS guards_with_missing,
+    SUM(CASE WHEN t.expired_license > 0 THEN 1 ELSE 0 END) AS guards_with_expired_license,
+    SUM(CASE WHEN t.expiring_license > 0 THEN 1 ELSE 0 END) AS guards_with_expiring_license
+FROM (
+    SELECT
+        g.id,
+        SUM(CASE WHEN gr.id IS NULL THEN 1 ELSE 0 END) AS missing_count,
+        SUM(CASE WHEN rt.code = 'SECURITY_LICENSE' AND gr.expiry_date IS NOT NULL AND gr.expiry_date < CURDATE() THEN 1 ELSE 0 END) AS expired_license,
+        SUM(CASE WHEN rt.code = 'SECURITY_LICENSE' AND gr.expiry_date IS NOT NULL AND gr.expiry_date >= CURDATE() AND gr.expiry_date <= DATE_ADD(CURDATE(), INTERVAL 6 MONTH) THEN 1 ELSE 0 END) AS expiring_license
+    FROM guards g
+    CROSS JOIN requirement_types rt
+    LEFT JOIN guard_requirements gr
+        ON gr.guard_id = g.id AND gr.requirement_type_id = rt.id
+    WHERE rt.is_required = 1
+    GROUP BY g.id
+) t
+";
+        $sumStmt = $pdo->query($summarySql);
+        $jubecerSummaryRow = $sumStmt->fetch(PDO::FETCH_ASSOC);
+        if (is_array($jubecerSummaryRow)) {
+            $jubecerSummary = array_merge($jubecerSummary, $jubecerSummaryRow);
+        }
+
+        $stmt = $pdo->query(
+            "SELECT\n".
+            "  g.id AS guard_id,\n".
+            "  g.full_name,\n".
+            "  g.guard_no,\n".
+            "  g.agency,\n".
+            "  gr.expiry_date,\n".
+            "  DATEDIFF(gr.expiry_date, CURDATE()) AS days_until_expiry,\n".
+            "  CASE\n".
+            "    WHEN gr.expiry_date < CURDATE() THEN 'Expired'\n".
+            "    WHEN gr.expiry_date <= DATE_ADD(CURDATE(), INTERVAL 6 MONTH) THEN 'Expiring'\n".
+            "    ELSE 'Valid'\n".
+            "  END AS alert_status\n".
+            "FROM guards g\n".
+            "JOIN requirement_types rt ON rt.code = 'SECURITY_LICENSE'\n".
+            "JOIN guard_requirements gr ON gr.guard_id = g.id AND gr.requirement_type_id = rt.id\n".
+            "WHERE gr.expiry_date IS NOT NULL\n".
+            "  AND gr.expiry_date <= DATE_ADD(CURDATE(), INTERVAL 6 MONTH)\n".
+            "ORDER BY (gr.expiry_date < CURDATE()) DESC, gr.expiry_date ASC, g.full_name ASC\n".
+            "LIMIT 20"
+        );
+        $jubecerLicenseAlerts = $stmt->fetchAll();
+    } catch (Throwable $e) {
+        $jubecerLicenseAlerts = [];
+        $jubecerSummary = [
+            'total_guards' => 0,
+            'guards_with_missing' => 0,
+            'guards_with_expired_license' => 0,
+            'guards_with_expiring_license' => 0,
+        ];
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -36,7 +107,7 @@ if ($userInitials === '') {
                         <div class="brand-subtitle"><?php echo htmlspecialchars($companyLabel, ENT_QUOTES, 'UTF-8'); ?></div>
                     </div>
                 </div>
-            </div>
+            </div> 
 
             <nav class="nav">
                 <a class="nav-item is-active" href="home.php">
@@ -52,40 +123,54 @@ if ($userInitials === '') {
                         <span class="nav-label">Dashboard</span>
                     </span>
                 </a>
-                <a class="nav-item" href="#">
-                    <span class="nav-item-content">
-                        <span class="nav-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                                <path d="M20 21a8 8 0 1 0-16 0" />
-                                <path d="M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
-                            </svg>
+                <?php if (!$isBrainMaster): ?>
+                    <a class="nav-item" href="jubecer_guards.php">
+                        <span class="nav-item-content">
+                            <span class="nav-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M20 21a8 8 0 1 0-16 0" />
+                                    <path d="M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
+                                </svg>
+                            </span>
+                            <span class="nav-label">Guards</span>
                         </span>
-                        <span class="nav-label">User Management</span>
-                    </span>
-                </a>
-                <a class="nav-item" href="#">
-                    <span class="nav-item-content">
-                        <span class="nav-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                                <path d="M20 21a8 8 0 1 0-16 0" />
-                                <path d="M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
-                            </svg>
+                    </a>
+                <?php else: ?>
+                    <a class="nav-item" href="#">
+                        <span class="nav-item-content">
+                            <span class="nav-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M20 21a8 8 0 1 0-16 0" />
+                                    <path d="M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
+                                </svg>
+                            </span>
+                            <span class="nav-label">User Management</span>
                         </span>
-                        <span class="nav-label">Patient Management</span>
-                    </span>
-                </a>
-                <a class="nav-item" href="#">
-                    <span class="nav-item-content">
-                        <span class="nav-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                                <path d="M4 19V5" />
-                                <path d="M4 19h16" />
-                                <path d="M8 15l3-4 3 2 4-6" />
-                            </svg>
+                    </a>
+                    <a class="nav-item" href="#">
+                        <span class="nav-item-content">
+                            <span class="nav-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M20 21a8 8 0 1 0-16 0" />
+                                    <path d="M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
+                                </svg>
+                            </span>
+                            <span class="nav-label">Patient Management</span>
                         </span>
-                        <span class="nav-label">Reports &amp; Analytics</span>
-                    </span>
-                </a>
+                    </a>
+                    <a class="nav-item" href="#">
+                        <span class="nav-item-content">
+                            <span class="nav-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M4 19V5" />
+                                    <path d="M4 19h16" />
+                                    <path d="M8 15l3-4 3 2 4-6" />
+                                </svg>
+                            </span>
+                            <span class="nav-label">Reports &amp; Analytics</span>
+                        </span>
+                    </a>
+                <?php endif; ?>
             </nav>
 
             <div class="sidebar-bottom">
@@ -106,6 +191,15 @@ if ($userInitials === '') {
                     </div>
 
                     <div class="profile-menu" role="menu" aria-label="Account actions">
+                        <a class="profile-menu-item" role="menuitem" href="../auth/switch_company.php">
+                            <span class="profile-menu-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M21 12a9 9 0 1 1-3.03-6.72" />
+                                    <path d="M21 3v6h-6" />
+                                </svg>
+                            </span>
+                            Switch Company
+                        </a>
                         <a class="profile-menu-item" role="menuitem" href="../auth/logout.php">
                             <span class="profile-menu-icon" aria-hidden="true">
                                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -168,7 +262,14 @@ if ($userInitials === '') {
                         <div class="section-title">Overview</div>
                         <div class="cards">
                             <div class="card">
-                                <div class="card-icon blue"></div>
+                                <div class="card-icon blue" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M3 13h8V3H3v10Z" />
+                                        <path d="M13 21h8V11h-8v10Z" />
+                                        <path d="M13 3h8v6h-8V3Z" />
+                                        <path d="M3 17h8v4H3v-4Z" />
+                                    </svg>
+                                </div>
                                 <div class="card-body">
                                     <div class="card-label">Total Employees</div>
                                     <div class="card-value">--</div>
@@ -176,7 +277,13 @@ if ($userInitials === '') {
                                 </div>
                             </div>
                             <div class="card">
-                                <div class="card-icon green"></div>
+                                <div class="card-icon green" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M8 12h8" />
+                                        <path d="M12 8v8" />
+                                        <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                    </svg>
+                                </div>
                                 <div class="card-body">
                                     <div class="card-label">Pending Requests</div>
                                     <div class="card-value">--</div>
@@ -184,7 +291,13 @@ if ($userInitials === '') {
                                 </div>
                             </div>
                             <div class="card">
-                                <div class="card-icon orange"></div>
+                                <div class="card-icon orange" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M4 19V5" />
+                                        <path d="M4 19h16" />
+                                        <path d="M8 15l3-4 3 2 4-6" />
+                                    </svg>
+                                </div>
                                 <div class="card-body">
                                     <div class="card-label">Completed Today</div>
                                     <div class="card-value">--</div>
@@ -192,7 +305,15 @@ if ($userInitials === '') {
                                 </div>
                             </div>
                             <div class="card">
-                                <div class="card-icon purple"></div>
+                                <div class="card-icon purple" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M12 9v4" />
+                                        <path d="M12 17h.01" />
+                                        <path d="M10 3h4" />
+                                        <path d="M12 3v3" />
+                                        <path d="M8.5 6.5A7 7 0 1 0 15.5 6.5" />
+                                    </svg>
+                                </div>
                                 <div class="card-body">
                                     <div class="card-label">Alerts</div>
                                     <div class="card-value">--</div>
@@ -228,16 +349,134 @@ if ($userInitials === '') {
                     </section>
                 <?php else: ?>
                     <section class="section">
-                        <div class="section-title">Jubecer</div>
-                        <div class="panel">
-                            <div class="row">
-                                <div class="chip">J</div>
-                                <div class="row-text">
-                                    <div class="row-main">Dashboard is not set up yet.</div>
-                                    <div class="row-sub">Add your Jubecer logo and modules.</div>
-                                </div>
-                                <div class="badge">Active</div>
+                        <div class="section-head">
+                            <div>
+                                <div class="section-title">Jubecer</div>
+                                <div class="row-sub">Guard compliance &amp; license monitoring</div>
                             </div>
+                            <div style="display:flex; align-items:center; gap: 10px; flex-wrap: wrap; justify-content: flex-end;">
+                                <a class="secondary-btn btn-sm" href="jubecer_guards.php#add-guard">Add Guard</a>
+                                <a class="primary-btn btn-sm" href="jubecer_guards.php">Open Guards</a>
+                            </div>
+                        </div>
+
+                        <div class="cards">
+                            <div class="card">
+                                <div class="card-icon blue" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M20 21a8 8 0 1 0-16 0" />
+                                        <path d="M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
+                                    </svg>
+                                </div>
+                                <div class="card-body">
+                                    <div class="card-label">Total Guards</div>
+                                    <div class="card-value"><?php echo (int)($jubecerSummary['total_guards'] ?? 0); ?></div>
+                                    <div class="card-footnote">All records</div>
+                                </div>
+                            </div>
+                            <div class="card">
+                                <div class="card-icon orange" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M12 9v4" />
+                                        <path d="M12 17h.01" />
+                                        <path d="M10 3h4" />
+                                        <path d="M12 3v3" />
+                                        <path d="M8.5 6.5A7 7 0 1 0 15.5 6.5" />
+                                    </svg>
+                                </div>
+                                <div class="card-body">
+                                    <div class="card-label">With Missing Requirements</div>
+                                    <div class="card-value"><?php echo (int)($jubecerSummary['guards_with_missing'] ?? 0); ?></div>
+                                    <div class="card-footnote">SSS/PAG-IBIG/PhilHealth/License</div>
+                                </div>
+                            </div>
+                            <div class="card">
+                                <div class="card-icon purple" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M12 8v5l3 2" />
+                                        <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                    </svg>
+                                </div>
+                                <div class="card-body">
+                                    <div class="card-label">License Expiring (6 mo)</div>
+                                    <div class="card-value"><?php echo (int)($jubecerSummary['guards_with_expiring_license'] ?? 0); ?></div>
+                                    <div class="card-footnote">Needs renewal soon</div>
+                                </div>
+                            </div>
+                            <div class="card">
+                                <div class="card-icon green" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M12 8v5l3 2" />
+                                        <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                        <path d="M15.5 15.5l3 3" />
+                                    </svg>
+                                </div>
+                                <div class="card-body">
+                                    <div class="card-label">License Expired</div>
+                                    <div class="card-value"><?php echo (int)($jubecerSummary['guards_with_expired_license'] ?? 0); ?></div>
+                                    <div class="card-footnote">Renew immediately</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="section-head" style="margin-top: 14px;">
+                            <div class="section-title">License Alerts</div>
+                            <a class="section-link" href="jubecer_guards.php">Open list</a>
+                        </div>
+
+                        <div class="panel">
+                            <?php if (empty($jubecerLicenseAlerts)): ?>
+                                <div class="row">
+                                    <div class="chip">J</div>
+                                    <div class="row-text">
+                                        <div class="row-main">No license alerts</div>
+                                        <div class="row-sub">No guards have an expired/expiring Security License (within 6 months).</div>
+                                    </div>
+                                    <div class="badge badge--valid">Valid</div>
+                                </div>
+                            <?php else: ?>
+                                <?php foreach ($jubecerLicenseAlerts as $a): ?>
+                                    <?php
+                                        $alertStatus = (string)($a['alert_status'] ?? '');
+                                        $alertBadgeClass = 'badge--valid';
+                                        if ($alertStatus === 'Expired') {
+                                            $alertBadgeClass = 'badge--expired';
+                                        } elseif ($alertStatus === 'Expiring') {
+                                            $alertBadgeClass = 'badge--expiring';
+                                        }
+
+                                        $agency = trim((string)($a['agency'] ?? ''));
+                                        $daysUntil = (int)($a['days_until_expiry'] ?? 0);
+                                        $daysLabel = '';
+                                        if ($alertStatus === 'Expired') {
+                                            $daysLabel = 'Expired ' . (string)abs($daysUntil) . ' day' . (abs($daysUntil) === 1 ? '' : 's') . ' ago';
+                                        } elseif ($alertStatus === 'Expiring') {
+                                            $daysLabel = 'In ' . (string)max(0, $daysUntil) . ' day' . (max(0, $daysUntil) === 1 ? '' : 's');
+                                        }
+                                    ?>
+                                    <div class="row">
+                                        <div class="chip">G</div>
+                                        <div class="row-text">
+                                            <div class="row-main">
+                                                <a style="text-decoration:none" href="jubecer_guard_profile.php?id=<?php echo (int)$a['guard_id']; ?>">
+                                                    <?php echo htmlspecialchars((string)$a['full_name'], ENT_QUOTES, 'UTF-8'); ?>
+                                                </a>
+                                            </div>
+                                            <div class="row-sub">
+                                                #<?php echo htmlspecialchars((string)$a['guard_no'], ENT_QUOTES, 'UTF-8'); ?>
+                                                <?php if ($agency !== ''): ?>
+                                                    • <?php echo htmlspecialchars($agency, ENT_QUOTES, 'UTF-8'); ?>
+                                                <?php endif; ?>
+                                                • Expiry: <?php echo htmlspecialchars((string)$a['expiry_date'], ENT_QUOTES, 'UTF-8'); ?>
+                                                <?php if ($daysLabel !== ''): ?>
+                                                    • <?php echo htmlspecialchars($daysLabel, ENT_QUOTES, 'UTF-8'); ?>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+                                        <div class="badge <?php echo $alertBadgeClass; ?>"><?php echo htmlspecialchars($alertStatus, ENT_QUOTES, 'UTF-8'); ?></div>
+                                    </div>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
                         </div>
                     </section>
                 <?php endif; ?>

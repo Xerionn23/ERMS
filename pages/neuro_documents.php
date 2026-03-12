@@ -1,6 +1,21 @@
 <?php
 require_once __DIR__ . '/../includes/guards.php';
-require_role('employee');
+
+require_login();
+
+$role = (string)($_SESSION['user_role'] ?? '');
+if ($role !== 'employee' && $role !== 'admin') {
+    header('Location: home.php');
+    exit;
+}
+
+if ($role === 'admin') {
+    require_company();
+    if ((string)($_SESSION['company'] ?? '') !== 'brainmaster') {
+        header('Location: home.php');
+        exit;
+    }
+}
 
 $userName = (string)($_SESSION['user_name'] ?? 'User');
 $userInitials = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $userName), 0, 2));
@@ -71,6 +86,17 @@ if ($userInitials === '') {
                     </div>
 
                     <div class="profile-menu" role="menu" aria-label="Account actions">
+                        <?php if ($role === 'admin'): ?>
+                            <a class="profile-menu-item" role="menuitem" href="../auth/switch_company.php">
+                                <span class="profile-menu-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M21 12a9 9 0 1 1-3.03-6.72" />
+                                        <path d="M21 3v6h-6" />
+                                    </svg>
+                                </span>
+                                Switch Company
+                            </a>
+                        <?php endif; ?>
                         <a class="profile-menu-item" role="menuitem" href="../auth/logout.php">
                             <span class="profile-menu-icon" aria-hidden="true">
                                 <svg viewBox="0 0 24 24" aria-hidden="true">

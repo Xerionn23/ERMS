@@ -21,5 +21,10 @@ if (!in_array($company, $allowed, true)) {
 
 $_SESSION['company'] = $company;
 
+if ($company === 'brainmaster') {
+    header('Location: ../pages/neuro_documents.php');
+    exit;
+}
+
 header('Location: ../pages/home.php');
 exit;

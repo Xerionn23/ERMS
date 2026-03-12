@@ -7,6 +7,9 @@
 # Local runtime / generated files
 /auth/remarks_index.txt
 
+# Uploads (runtime)
+/uploads/
+
 # OS / editor
 .DS_Store
 Thumbs.db

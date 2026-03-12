@@ -27,9 +27,23 @@ function require_role(string $role): void
     require_login();
 
     if (!isset($_SESSION['user_role']) || (string)$_SESSION['user_role'] !== $role) {
-        if (isset($_SESSION['user_role']) && (string)$_SESSION['user_role'] === 'employee') {
+        $currentRole = (string)($_SESSION['user_role'] ?? '');
+
+        if ($currentRole === 'employee') {
             header('Location: ../pages/neuro_documents.php');
             exit;
+        }
+
+        if ($currentRole === 'admin') {
+            if (!isset($_SESSION['company'])) {
+                header('Location: ../pages/choose_company.php');
+                exit;
+            }
+
+            if ((string)($_SESSION['company'] ?? '') === 'brainmaster') {
+                header('Location: ../pages/neuro_documents.php');
+                exit;
+            }
         }
 
         header('Location: ../pages/home.php');
