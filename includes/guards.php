@@ -34,6 +34,11 @@ function require_role(string $role): void
             exit;
         }
 
+        if ($currentRole === 'security_operation') {
+            header('Location: ../pages/home.php');
+            exit;
+        }
+
         if ($currentRole === 'admin') {
             if (!isset($_SESSION['company'])) {
                 header('Location: ../pages/choose_company.php');

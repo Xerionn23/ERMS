@@ -14,6 +14,12 @@ $users = [
         'password' => 'admin123'
     ],
     [
+        'employee_id' => 'secops',
+        'full_name' => 'Security Operation',
+        'role' => 'security_operation',
+        'password' => 'secops123'
+    ],
+    [
         'employee_id' => 'employee',
         'full_name' => 'Employee',
         'role' => 'employee',

@@ -1,6 +1,25 @@
 <?php
 require_once __DIR__ . '/../includes/guards.php';
-require_role('admin');
+require_login();
+
+$role = (string)($_SESSION['user_role'] ?? '');
+
+if ($role === 'employee') {
+    $_SESSION['company'] = 'brainmaster';
+    header('Location: neuro_documents.php');
+    exit;
+}
+
+if ($role === 'security_operation') {
+    if (!isset($_SESSION['company'])) {
+        $_SESSION['company'] = 'jubecer';
+    }
+}
+
+if ($role === 'admin') {
+    require_company();
+}
+
 require_company();
 
 if ((string)($_SESSION['company'] ?? '') !== 'jubecer') {
@@ -11,6 +30,19 @@ if ((string)($_SESSION['company'] ?? '') !== 'jubecer') {
 require_once __DIR__ . '/../includes/db.php';
 
 $pdo = db();
+
+$roleLabel = $role === 'security_operation' ? 'Security Operation' : 'Administrator';
+
+$flashError = '';
+$flashSuccess = '';
+if (isset($_SESSION['flash_error'])) {
+    $flashError = (string)$_SESSION['flash_error'];
+    unset($_SESSION['flash_error']);
+}
+if (isset($_SESSION['flash_success'])) {
+    $flashSuccess = (string)$_SESSION['flash_success'];
+    unset($_SESSION['flash_success']);
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = isset($_POST['action']) ? (string)$_POST['action'] : '';
@@ -52,7 +84,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->beginTransaction();
 
                 $stmt = $pdo->prepare(
-                    'INSERT INTO guards (guard_no, last_name, first_name, middle_name, suffix, birthdate, age, agency, full_name, contact_no)\n'
+                    'INSERT INTO guards (guard_no, last_name, first_name, middle_name, suffix, birthdate, age, agency, full_name, contact_no) '
                     . 'VALUES (NULL, :last_name, :first_name, :middle_name, :suffix, :birthdate, :age, :agency, :full_name, :contact_no)'
                 );
                 $stmt->execute([
@@ -74,11 +106,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $upd->execute(['guard_no' => $guardNo, 'id' => $newId]);
 
                 $pdo->commit();
+                $_SESSION['flash_success'] = 'Guard saved successfully.';
             } catch (Throwable $e) {
                 if ($pdo->inTransaction()) {
                     $pdo->rollBack();
                 }
+                error_log('Add Guard failed: ' . $e->getMessage());
+                $_SESSION['flash_error'] = 'Failed to save guard. ' . $e->getMessage();
             }
+        } else {
+            $_SESSION['flash_error'] = 'Last Name and First Name are required.';
         }
 
         header('Location: jubecer_guards.php');
@@ -209,7 +246,7 @@ if ($userInitials === '') {
                         <div class="avatar"><?php echo htmlspecialchars($userInitials, ENT_QUOTES, 'UTF-8'); ?></div>
                         <div class="profile-text">
                             <div class="profile-name"><?php echo htmlspecialchars($userName, ENT_QUOTES, 'UTF-8'); ?></div>
-                            <div class="profile-role">Administrator</div>
+                            <div class="profile-role"><?php echo htmlspecialchars($roleLabel, ENT_QUOTES, 'UTF-8'); ?></div>
                         </div>
                         <span class="profile-chevron" aria-hidden="true">
                             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -219,15 +256,17 @@ if ($userInitials === '') {
                     </div>
 
                     <div class="profile-menu" role="menu" aria-label="Account actions">
-                        <a class="profile-menu-item" role="menuitem" href="../auth/switch_company.php">
-                            <span class="profile-menu-icon" aria-hidden="true">
-                                <svg viewBox="0 0 24 24" aria-hidden="true">
-                                    <path d="M21 12a9 9 0 1 1-3.03-6.72" />
-                                    <path d="M21 3v6h-6" />
-                                </svg>
-                            </span>
-                            Switch Company
-                        </a>
+                        <?php if ($role === 'admin'): ?>
+                            <a class="profile-menu-item" role="menuitem" href="../auth/switch_company.php">
+                                <span class="profile-menu-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M21 12a9 9 0 1 1-3.03-6.72" />
+                                        <path d="M21 3v6h-6" />
+                                    </svg>
+                                </span>
+                                Switch Company
+                            </a>
+                        <?php endif; ?>
                         <a class="profile-menu-item" role="menuitem" href="../auth/logout.php">
                             <span class="profile-menu-icon" aria-hidden="true">
                                 <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -287,7 +326,12 @@ if ($userInitials === '') {
                     <div class="section-title">Overview</div>
                     <div class="cards">
                         <div class="card">
-                            <div class="card-icon blue"></div>
+                            <div class="card-icon blue" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M20 21a8 8 0 1 0-16 0" />
+                                    <path d="M12 13a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
+                                </svg>
+                            </div>
                             <div class="card-body">
                                 <div class="card-label">Total Guards</div>
                                 <div class="card-value"><?php echo (int)$summary['total_guards']; ?></div>
@@ -295,7 +339,15 @@ if ($userInitials === '') {
                             </div>
                         </div>
                         <div class="card">
-                            <div class="card-icon orange"></div>
+                            <div class="card-icon orange" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M12 9v4" />
+                                    <path d="M12 17h.01" />
+                                    <path d="M10 3h4" />
+                                    <path d="M12 3v3" />
+                                    <path d="M8.5 6.5A7 7 0 1 0 15.5 6.5" />
+                                </svg>
+                            </div>
                             <div class="card-body">
                                 <div class="card-label">With Missing</div>
                                 <div class="card-value"><?php echo (int)$summary['guards_with_missing']; ?></div>
@@ -303,7 +355,12 @@ if ($userInitials === '') {
                             </div>
                         </div>
                         <div class="card">
-                            <div class="card-icon purple"></div>
+                            <div class="card-icon purple" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M12 8v5l3 2" />
+                                    <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                </svg>
+                            </div>
                             <div class="card-body">
                                 <div class="card-label">License Expiring (6 mo)</div>
                                 <div class="card-value"><?php echo (int)$summary['guards_with_expiring_license']; ?></div>
@@ -311,7 +368,13 @@ if ($userInitials === '') {
                             </div>
                         </div>
                         <div class="card">
-                            <div class="card-icon green"></div>
+                            <div class="card-icon green" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M12 8v5l3 2" />
+                                    <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                                    <path d="M15.5 15.5l3 3" />
+                                </svg>
+                            </div>
                             <div class="card-body">
                                 <div class="card-label">License Expired</div>
                                 <div class="card-value"><?php echo (int)$summary['guards_with_expired_license']; ?></div>
@@ -326,6 +389,25 @@ if ($userInitials === '') {
                         <div class="section-title">Add Guard</div>
                     </div>
                     <div class="panel">
+                        <?php if ($flashError !== ''): ?>
+                            <div class="row" style="border-bottom: 1px solid rgba(148, 163, 184, 0.22);">
+                                <div class="chip" style="background: rgba(239, 68, 68, 0.14); border-color: rgba(239, 68, 68, 0.28); color: #991b1b;">!</div>
+                                <div class="row-text">
+                                    <div class="row-main">Unable to save guard</div>
+                                    <div class="row-sub"><?php echo htmlspecialchars($flashError, ENT_QUOTES, 'UTF-8'); ?></div>
+                                </div>
+                                <div class="badge badge--missing">Error</div>
+                            </div>
+                        <?php elseif ($flashSuccess !== ''): ?>
+                            <div class="row" style="border-bottom: 1px solid rgba(148, 163, 184, 0.22);">
+                                <div class="chip" style="background: rgba(34, 197, 94, 0.14); border-color: rgba(34, 197, 94, 0.28); color: #166534;">✓</div>
+                                <div class="row-text">
+                                    <div class="row-main">Saved</div>
+                                    <div class="row-sub"><?php echo htmlspecialchars($flashSuccess, ENT_QUOTES, 'UTF-8'); ?></div>
+                                </div>
+                                <div class="badge badge--valid">OK</div>
+                            </div>
+                        <?php endif; ?>
                         <form class="form" method="post" action="jubecer_guards.php">
                             <input type="hidden" name="action" value="add_guard" />
                             <div class="form-grid">

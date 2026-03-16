@@ -1,6 +1,25 @@
 <?php
 require_once __DIR__ . '/../includes/guards.php';
-require_role('admin');
+require_login();
+
+$role = (string)($_SESSION['user_role'] ?? '');
+
+if ($role === 'employee') {
+    $_SESSION['company'] = 'brainmaster';
+    header('Location: neuro_documents.php');
+    exit;
+}
+
+if ($role === 'security_operation') {
+    if (!isset($_SESSION['company'])) {
+        $_SESSION['company'] = 'jubecer';
+    }
+}
+
+if ($role === 'admin') {
+    require_company();
+}
+
 require_company();
 
 if ((string)($_SESSION['company'] ?? '') !== 'jubecer') {
@@ -24,6 +43,8 @@ if ($guardId <= 0) {
 }
 
 $pdo = db();
+
+$roleLabel = $role === 'security_operation' ? 'Security Operation' : 'Administrator';
 
 try {
     $colStmt = $pdo->prepare(
@@ -747,7 +768,7 @@ if ($userInitials === '') {
                         <div class="avatar"><?php echo htmlspecialchars($userInitials, ENT_QUOTES, 'UTF-8'); ?></div>
                         <div class="profile-text">
                             <div class="profile-name"><?php echo htmlspecialchars($userName, ENT_QUOTES, 'UTF-8'); ?></div>
-                            <div class="profile-role">Administrator</div>
+                            <div class="profile-role"><?php echo htmlspecialchars($roleLabel, ENT_QUOTES, 'UTF-8'); ?></div>
                         </div>
                         <span class="profile-chevron" aria-hidden="true">
                             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -757,15 +778,17 @@ if ($userInitials === '') {
                     </div>
 
                     <div class="profile-menu" role="menu" aria-label="Account actions">
-                        <a class="profile-menu-item" role="menuitem" href="../auth/switch_company.php">
-                            <span class="profile-menu-icon" aria-hidden="true">
-                                <svg viewBox="0 0 24 24" aria-hidden="true">
-                                    <path d="M21 12a9 9 0 1 1-3.03-6.72" />
-                                    <path d="M21 3v6h-6" />
-                                </svg>
-                            </span>
-                            Switch Company
-                        </a>
+                        <?php if ($role === 'admin'): ?>
+                            <a class="profile-menu-item" role="menuitem" href="../auth/switch_company.php">
+                                <span class="profile-menu-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                                        <path d="M21 12a9 9 0 1 1-3.03-6.72" />
+                                        <path d="M21 3v6h-6" />
+                                    </svg>
+                                </span>
+                                Switch Company
+                            </a>
+                        <?php endif; ?>
                         <a class="profile-menu-item" role="menuitem" href="../auth/logout.php">
                             <span class="profile-menu-icon" aria-hidden="true">
                                 <svg viewBox="0 0 24 24" aria-hidden="true">

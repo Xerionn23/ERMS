@@ -39,8 +39,17 @@ try {
 
 unset($_SESSION['company']);
 
-if (isset($_SESSION['user_role']) && $_SESSION['user_role'] === 'employee') {
+$role = (string)($_SESSION['user_role'] ?? '');
+
+if ($role === 'employee') {
+    $_SESSION['company'] = 'brainmaster';
     header('Location: ../pages/neuro_documents.php');
+    exit;
+}
+
+if ($role === 'security_operation') {
+    $_SESSION['company'] = 'jubecer';
+    header('Location: ../pages/home.php');
     exit;
 }
 

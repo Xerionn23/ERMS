@@ -12,7 +12,15 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 $company = isset($_POST['company']) ? (string)$_POST['company'] : '';
-$allowed = ['brainmaster', 'jubecer'];
+$role = (string)($_SESSION['user_role'] ?? '');
+
+if ($role === 'admin') {
+    $allowed = ['brainmaster', 'jubecer'];
+} elseif ($role === 'security_operation') {
+    $allowed = ['jubecer'];
+} else {
+    $allowed = ['brainmaster'];
+}
 
 if (!in_array($company, $allowed, true)) {
     header('Location: ../pages/choose_company.php');

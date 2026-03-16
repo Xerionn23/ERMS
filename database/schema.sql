@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS users (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
     employee_id VARCHAR(50) NOT NULL,
     full_name VARCHAR(120) NOT NULL,
-    role ENUM('admin', 'employee') NOT NULL DEFAULT 'employee',
+    role ENUM('admin', 'security_operation', 'employee') NOT NULL DEFAULT 'employee',
     password_hash VARCHAR(255) NOT NULL,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -14,6 +14,9 @@ CREATE TABLE IF NOT EXISTS users (
     PRIMARY KEY (id),
     UNIQUE KEY uq_users_employee_id (employee_id)
 ) ENGINE=InnoDB;
+
+ALTER TABLE users
+    MODIFY role ENUM('admin', 'security_operation', 'employee') NOT NULL DEFAULT 'employee';
 
 CREATE TABLE IF NOT EXISTS guards (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,

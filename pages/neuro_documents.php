@@ -22,6 +22,8 @@ $userInitials = strtoupper(substr(preg_replace('/[^A-Za-z0-9]/', '', $userName),
 if ($userInitials === '') {
     $userInitials = 'U';
 }
+
+$roleLabel = $role === 'admin' ? 'Administrator' : 'Employee';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -41,7 +43,7 @@ if ($userInitials === '') {
                     </div>
                     <div class="brand-text">
                         <div class="brand-title">ERMS</div>
-                        <div class="brand-subtitle">Employee</div>
+                        <div class="brand-subtitle"><?php echo htmlspecialchars($roleLabel, ENT_QUOTES, 'UTF-8'); ?></div>
                     </div>
                 </div>
             </div>
@@ -76,7 +78,7 @@ if ($userInitials === '') {
                         <div class="avatar"><?php echo htmlspecialchars($userInitials, ENT_QUOTES, 'UTF-8'); ?></div>
                         <div class="profile-text">
                             <div class="profile-name"><?php echo htmlspecialchars($userName, ENT_QUOTES, 'UTF-8'); ?></div>
-                            <div class="profile-role">Employee</div>
+                            <div class="profile-role"><?php echo htmlspecialchars($roleLabel, ENT_QUOTES, 'UTF-8'); ?></div>
                         </div>
                         <span class="profile-chevron" aria-hidden="true">
                             <svg viewBox="0 0 24 24" aria-hidden="true">
