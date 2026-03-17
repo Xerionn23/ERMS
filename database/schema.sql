@@ -2,13 +2,28 @@ CREATE DATABASE IF NOT EXISTS erms CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode
 
 USE erms;
 
-CREATE TABLE IF NOT EXISTS users (
+CREATE TABLE IF NOT EXISTS employees (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,
     employee_id VARCHAR(50) NOT NULL,
     full_name VARCHAR(120) NOT NULL,
+    email VARCHAR(190) NULL,
+    starting_date DATE NULL,
+    role ENUM('admin', 'security_operation', 'employee') NOT NULL DEFAULT 'employee',
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    deactivated_at TIMESTAMP NULL DEFAULT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_employees_employee_id (employee_id)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS users (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    employee_id VARCHAR(50) NOT NULL,
     role ENUM('admin', 'security_operation', 'employee') NOT NULL DEFAULT 'employee',
     password_hash VARCHAR(255) NOT NULL,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
+    deactivated_at TIMESTAMP NULL DEFAULT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
@@ -30,12 +45,16 @@ CREATE TABLE IF NOT EXISTS guards (
     agency VARCHAR(120) NULL,
     full_name VARCHAR(180) NOT NULL,
     contact_no VARCHAR(50) NULL,
+    deployed DATE NULL,
     status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     UNIQUE KEY uq_guards_guard_no (guard_no)
 ) ENGINE=InnoDB;
+
+-- Add deployed column if not exists (run this if table already exists)
+-- ALTER TABLE guards ADD COLUMN deployed DATE NULL AFTER contact_no;
 
 CREATE TABLE IF NOT EXISTS requirement_types (
     id INT UNSIGNED NOT NULL AUTO_INCREMENT,

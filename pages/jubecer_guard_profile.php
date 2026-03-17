@@ -379,6 +379,7 @@ if ($userInitials === '') {
 <head>
     <meta charset="UTF-8" />
     <title>Guard Profile | ERMS</title>
+    <link rel="icon" type="image/svg+xml" href="../assets/img/erms-logo.svg"/>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="stylesheet" href="../assets/css/dashboard.css" />
 </head>

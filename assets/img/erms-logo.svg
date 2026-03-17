@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="ERMS mark v3">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#444CE7"/>
+      <stop offset="1" stop-color="#1F2370"/>
+    </linearGradient>
+  </defs>
+
+  <path d="M64 18c17 10 30 12 44 15v36c0 23-18 37-44 49C38 106 20 92 20 69V33c14-3 27-5 44-15Z" fill="none" stroke="url(#g)" stroke-width="6" stroke-linejoin="round"/>
+
+  <g fill="none" stroke="url(#g)" stroke-width="6" stroke-linecap="round">
+    <path d="M44 50h40"/>
+    <path d="M44 64h40"/>
+  </g>
+
+  <g fill="url(#g)">
+    <rect x="44" y="76" width="12" height="12" rx="4"/>
+    <rect x="58" y="76" width="12" height="12" rx="4"/>
+    <rect x="72" y="76" width="12" height="12" rx="4"/>
+  </g>
+</svg>

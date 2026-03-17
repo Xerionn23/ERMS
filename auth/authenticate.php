@@ -19,19 +19,48 @@ if ($username === '' || $password === '') {
 try {
     $pdo = db();
 
-    $stmt = $pdo->prepare('SELECT id, employee_id, full_name, role, password_hash, is_active FROM users WHERE employee_id = :employee_id LIMIT 1');
-    $stmt->execute(['employee_id' => $username]);
-    $user = $stmt->fetch();
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT '
+            . 'u.id, u.employee_id, u.password_hash, u.is_active AS user_active, '
+            . 'e.full_name, e.role, e.is_active AS emp_active '
+            . 'FROM users u '
+            . 'JOIN employees e ON e.employee_id = u.employee_id '
+            . 'WHERE u.employee_id = :employee_id '
+            . 'LIMIT 1'
+        );
+        $stmt->execute(['employee_id' => $username]);
+        $user = $stmt->fetch();
 
-    if (!$user || (int)$user['is_active'] !== 1 || !password_verify($password, (string)$user['password_hash'])) {
-        header('Location: ../pages/login.php?error=1');
-        exit;
+        if (
+            !$user
+            || (int)($user['user_active'] ?? 0) !== 1
+            || (int)($user['emp_active'] ?? 0) !== 1
+            || !password_verify($password, (string)($user['password_hash'] ?? ''))
+        ) {
+            header('Location: ../pages/login.php?error=1');
+            exit;
+        }
+
+        $_SESSION['user_id'] = (int)$user['id'];
+        $_SESSION['user_employee_id'] = (string)$user['employee_id'];
+        $_SESSION['user_name'] = (string)$user['full_name'];
+        $_SESSION['user_role'] = (string)$user['role'];
+    } catch (Throwable $e) {
+        $stmt = $pdo->prepare('SELECT id, employee_id, full_name, role, password_hash, is_active FROM users WHERE employee_id = :employee_id LIMIT 1');
+        $stmt->execute(['employee_id' => $username]);
+        $user = $stmt->fetch();
+
+        if (!$user || (int)$user['is_active'] !== 1 || !password_verify($password, (string)$user['password_hash'])) {
+            header('Location: ../pages/login.php?error=1');
+            exit;
+        }
+
+        $_SESSION['user_id'] = (int)$user['id'];
+        $_SESSION['user_employee_id'] = (string)$user['employee_id'];
+        $_SESSION['user_name'] = (string)$user['full_name'];
+        $_SESSION['user_role'] = (string)$user['role'];
     }
-
-    $_SESSION['user_id'] = (int)$user['id'];
-    $_SESSION['user_employee_id'] = (string)$user['employee_id'];
-    $_SESSION['user_name'] = (string)$user['full_name'];
-    $_SESSION['user_role'] = (string)$user['role'];
 } catch (Throwable $e) {
     header('Location: ../pages/login.php?error=1');
     exit;

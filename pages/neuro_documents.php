@@ -30,84 +30,57 @@ $roleLabel = $role === 'admin' ? 'Administrator' : 'Employee';
 <head>
     <meta charset="UTF-8" />
     <title>Neuro Documents | ERMS</title>
+    <link rel="icon" type="image/svg+xml" href="../assets/img/erms-logo.svg"/>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="stylesheet" href="../assets/css/dashboard.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com"/>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+    <link rel="stylesheet" href="../assets/css/home_redesign.css" />
 </head>
 <body>
-    <div class="layout">
-        <aside class="sidebar" aria-label="Sidebar Navigation">
-            <div class="sidebar-top">
-                <div class="brand">
-                    <div class="brand-logo" aria-hidden="true">
-                        <img src="../assets/img/brainmaster.jpg" alt="Brain Master" />
+    <div class="shell">
+        <aside class="sb" aria-label="Sidebar Navigation">
+            <div class="sb-top">
+                <div class="sb-brand">
+                    <div class="sb-logo" aria-hidden="true">
+                        <img src="../assets/img/brainmaster.jpg" alt="" />
                     </div>
-                    <div class="brand-text">
-                        <div class="brand-title">ERMS</div>
-                        <div class="brand-subtitle"><?php echo htmlspecialchars($roleLabel, ENT_QUOTES, 'UTF-8'); ?></div>
+                    <div>
+                        <div class="sb-name">ERMS</div>
+                        <div class="sb-tagline">Brain Master</div>
                     </div>
                 </div>
             </div>
 
-            <nav class="nav">
-                <a class="nav-item is-active" href="neuro_documents.php">
-                    <span class="nav-item-content">
-                        <span class="nav-icon" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                                <path d="M7 3h10" />
-                                <path d="M7 7h10" />
-                                <path d="M7 11h10" />
-                                <path d="M7 15h7" />
-                                <path d="M6 3h-1a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-1" />
-                            </svg>
-                        </span>
-                        <span class="nav-label">Neuro Documents</span>
-                    </span>
+            <div class="sb-nav">
+                <div class="sb-nav-label">Navigation</div>
+                <a class="sb-item on" href="neuro_documents.php" style="text-decoration:none;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3h10"/><path d="M7 7h10"/><path d="M7 11h10"/><path d="M7 15h7"/><path d="M6 3h-1a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-1"/></svg>
+                    <span style="flex:1">Neuro Documents</span>
                 </a>
-            </nav>
+            </div>
 
-            <div class="sidebar-bottom">
-                <div class="profile-dropdown" id="profileDropdownEmployee">
-                    <div
-                        class="profile profile-trigger"
-                        role="button"
-                        tabindex="0"
-                        aria-haspopup="menu"
-                        aria-expanded="false"
-                        aria-label="Account menu"
-                    >
-                        <div class="avatar"><?php echo htmlspecialchars($userInitials, ENT_QUOTES, 'UTF-8'); ?></div>
-                        <div class="profile-text">
-                            <div class="profile-name"><?php echo htmlspecialchars($userName, ENT_QUOTES, 'UTF-8'); ?></div>
-                            <div class="profile-role"><?php echo htmlspecialchars($roleLabel, ENT_QUOTES, 'UTF-8'); ?></div>
+            <div class="sb-foot">
+                <div class="sb-dd" id="bmAccountMenu">
+                    <button class="sb-trigger" type="button" aria-haspopup="menu" aria-expanded="false">
+                        <div class="sb-av"><?php echo htmlspecialchars($userInitials, ENT_QUOTES, 'UTF-8'); ?></div>
+                        <div style="min-width:0">
+                            <div class="sb-uname" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"><?php echo htmlspecialchars($userName, ENT_QUOTES, 'UTF-8'); ?></div>
+                            <div class="sb-urole"><?php echo htmlspecialchars($roleLabel, ENT_QUOTES, 'UTF-8'); ?></div>
                         </div>
-                        <span class="profile-chevron" aria-hidden="true">
-                            <svg viewBox="0 0 24 24" aria-hidden="true">
-                                <path d="M6 9l6 6 6-6" />
-                            </svg>
+                        <span class="sb-chev" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
                         </span>
-                    </div>
-
-                    <div class="profile-menu" role="menu" aria-label="Account actions">
+                    </button>
+                    <div class="sb-menu" role="menu" aria-label="Account actions">
                         <?php if ($role === 'admin'): ?>
-                            <a class="profile-menu-item" role="menuitem" href="../auth/switch_company.php">
-                                <span class="profile-menu-icon" aria-hidden="true">
-                                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                                        <path d="M21 12a9 9 0 1 1-3.03-6.72" />
-                                        <path d="M21 3v6h-6" />
-                                    </svg>
-                                </span>
+                            <a class="sb-mi" role="menuitem" href="../auth/switch_company.php">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.03-6.72"/><path d="M21 3v6h-6"/></svg>
                                 Switch Company
                             </a>
                         <?php endif; ?>
-                        <a class="profile-menu-item" role="menuitem" href="../auth/logout.php">
-                            <span class="profile-menu-icon" aria-hidden="true">
-                                <svg viewBox="0 0 24 24" aria-hidden="true">
-                                    <path d="M10 17l-1 4 4-1" />
-                                    <path d="M3 12h11" />
-                                    <path d="M10 8l4 4-4 4" />
-                                    <path d="M14 4h6v16h-6" />
-                                </svg>
-                            </span>
+                        <a class="sb-mi d" role="menuitem" href="../auth/logout.php">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 17l-1 4 4-1"/><path d="M3 12h11"/><path d="M10 8l4 4-4 4"/><path d="M14 4h6v16h-6"/></svg>
                             Logout
                         </a>
                     </div>
@@ -116,110 +89,81 @@ $roleLabel = $role === 'admin' ? 'Administrator' : 'Employee';
         </aside>
 
         <div class="main">
-            <header class="topbar">
-                <div class="topbar-left">
-                    <button
-                        class="menu-btn"
-                        type="button"
-                        aria-label="Toggle navigation"
-                        onclick="document.body.classList.toggle('sidebar-open')"
-                    >
-                        ☰
-                    </button>
-                    <div class="page-title">
-                        <div class="page-title-main-row">
-                            <div class="page-title-icon" aria-hidden="true">
-                                <svg viewBox="0 0 24 24" aria-hidden="true">
-                                    <path d="M7 3h10" />
-                                    <path d="M7 7h10" />
-                                    <path d="M7 11h10" />
-                                    <path d="M7 15h7" />
-                                    <path d="M6 3h-1a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-1" />
-                                </svg>
-                            </div>
-                            <div class="page-title-text">
-                                <div class="page-title-main">Neuro Documents</div>
-                                <div class="page-title-sub">Generated documents</div>
-                            </div>
-                        </div>
-                    </div>
+            <div class="topbar">
+                <div>
+                    <div class="tb-pg">Neuro Documents</div>
+                    <div class="tb-crumb">ERMS &rsaquo; Brain Master</div>
                 </div>
-
-                <div class="topbar-right">
-                    <div class="datetime-pill" aria-label="Current date and time">
-                        <svg viewBox="0 0 24 24" aria-hidden="true">
-                            <path d="M12 8v5l3 2" />
-                            <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                        </svg>
-                        <span id="topbarDateTimeEmployee">--</span>
-                    </div>
+                <div class="tb-r">
+                    <div class="tb-clock" aria-label="Current date and time"><span id="topbarDateTimeEmployee">--</span></div>
                 </div>
-            </header>
+            </div>
 
-            <main class="content">
-                <section class="section">
-                    <div class="section-title">Generate Neuro Document</div>
-                    <div class="panel">
-                        <form class="form" id="neuroDocForm" method="post" action="../auth/generate_neuro_document.php" target="docxDownloadFrame">
-                            <div class="field" style="margin-bottom: 16px;">
-                                <label class="label" for="folder_name">Folder Name</label>
-                                <input class="input" id="folder_name" name="folder_name" type="text" placeholder="e.g., Batch_January_2026" style="max-width: 400px;" required />
-                                <div id="folder_name_status" style="margin-top: 4px; font-size: 12px;"></div>
-                            </div>
-
-                            <div class="form-grid">
-                                <div class="field">
-                                    <label class="label" for="contact_no">Contact No</label>
-                                    <input class="input" id="contact_no" name="contact_no" type="text" autocomplete="tel" tabindex="1" required />
+            <div class="content">
+                <div class="bm-wrap">
+                    <div class="bm-section">
+                        <div class="bm-title">Generate Neuro Document</div>
+                        <div class="bm-panel">
+                            <form class="bm-form" id="neuroDocForm" method="post" action="../auth/generate_neuro_document.php" target="docxDownloadFrame">
+                                <div class="bm-field" style="margin-bottom:16px;">
+                                    <label class="bm-label" for="folder_name">Folder Name</label>
+                                    <input class="bm-input" id="folder_name" name="folder_name" type="text" placeholder="e.g., Batch_January_2026" style="max-width:400px;" required />
+                                    <div id="folder_name_status" style="margin-top:4px;font-size:12px;"></div>
                                 </div>
 
-                                <div class="field">
-                                    <label class="label" for="np_clearance">NP Clearance</label>
-                                    <input class="input" id="np_clearance" name="np_clearance" type="text" tabindex="2" required />
-                                </div>
+                                <div class="bm-grid">
+                                    <div class="bm-field">
+                                        <label class="bm-label" for="contact_no">Contact No</label>
+                                        <input class="bm-input" id="contact_no" name="contact_no" type="text" autocomplete="tel" tabindex="1" required />
+                                    </div>
 
-                                <div class="field">
-                                    <label class="label" for="document_date">Date</label>
-                                    <input class="input" id="document_date" name="document_date" type="date" tabindex="3" required />
-                                </div>
+                                    <div class="bm-field">
+                                        <label class="bm-label" for="np_clearance">NP Clearance</label>
+                                        <input class="bm-input" id="np_clearance" name="np_clearance" type="text" tabindex="2" required />
+                                    </div>
 
-                                <div class="field">
-                                    <label class="label" for="last_name">Last Name</label>
-                                    <input class="input" id="last_name" name="last_name" type="text" autocomplete="family-name" tabindex="4" required />
-                                </div>
+                                    <div class="bm-field">
+                                        <label class="bm-label" for="document_date">Date</label>
+                                        <input class="bm-input" id="document_date" name="document_date" type="date" tabindex="3" required />
+                                    </div>
 
-                                <div class="field">
-                                    <label class="label" for="first_name">First Name</label>
-                                    <input class="input" id="first_name" name="first_name" type="text" autocomplete="given-name" tabindex="5" required />
-                                </div>
+                                    <div class="bm-field">
+                                        <label class="bm-label" for="last_name">Last Name</label>
+                                        <input class="bm-input" id="last_name" name="last_name" type="text" autocomplete="family-name" tabindex="4" required />
+                                    </div>
 
-                                <div class="field">
-                                    <label class="label" for="middle_name">Middle Initial</label>
-                                    <input class="input" id="middle_name" name="middle_name" type="text" autocomplete="additional-name" inputmode="text" maxlength="1" pattern="[A-Za-z]" placeholder="M" tabindex="6" />
-                                </div>
+                                    <div class="bm-field">
+                                        <label class="bm-label" for="first_name">First Name</label>
+                                        <input class="bm-input" id="first_name" name="first_name" type="text" autocomplete="given-name" tabindex="5" required />
+                                    </div>
 
-                                <div class="field">
-                                    <label class="label" for="suffix">Suffix</label>
-                                    <input class="input" id="suffix" name="suffix" type="text" placeholder="Jr., Sr., III" tabindex="7" />
-                                </div>
+                                    <div class="bm-field">
+                                        <label class="bm-label" for="middle_name">Middle Initial</label>
+                                        <input class="bm-input" id="middle_name" name="middle_name" type="text" autocomplete="additional-name" inputmode="text" maxlength="1" pattern="[A-Za-z]" placeholder="M" tabindex="6" />
+                                    </div>
 
-                                <div class="field">
-                                    <label class="label" for="age">Age</label>
-                                    <input class="input" id="age" name="age" type="number" min="0" max="130" tabindex="8" required />
-                                </div>
+                                    <div class="bm-field">
+                                        <label class="bm-label" for="suffix">Suffix</label>
+                                        <input class="bm-input" id="suffix" name="suffix" type="text" placeholder="Jr., Sr., III" tabindex="7" />
+                                    </div>
 
-                                <div class="field">
-                                    <label class="label" for="sex">Gender</label>
-                                    <input class="input" id="sex" name="sex" type="text" list="sex_list" tabindex="9" required />
+                                    <div class="bm-field">
+                                        <label class="bm-label" for="age">Age</label>
+                                        <input class="bm-input" id="age" name="age" type="number" min="0" max="130" tabindex="8" required />
+                                    </div>
+
+                                    <div class="bm-field">
+                                        <label class="bm-label" for="sex">Gender</label>
+                                        <input class="bm-input" id="sex" name="sex" type="text" list="sex_list" tabindex="9" required />
                                     <datalist id="sex_list">
                                         <option value="Male">
                                         <option value="Female">
                                     </datalist>
-                                </div>
+                                    </div>
 
-                                <div class="field">
-                                    <label class="label" for="civil_status">Civil Status</label>
-                                    <input class="input" id="civil_status" name="civil_status" type="text" list="civil_status_list" tabindex="10" required />
+                                    <div class="bm-field">
+                                        <label class="bm-label" for="civil_status">Civil Status</label>
+                                        <input class="bm-input" id="civil_status" name="civil_status" type="text" list="civil_status_list" tabindex="10" required />
                                     <datalist id="civil_status_list">
                                         <option value="Single">
                                         <option value="Married">
@@ -227,26 +171,26 @@ $roleLabel = $role === 'admin' ? 'Administrator' : 'Employee';
                                         <option value="Separated">
                                         <option value="Annulled">
                                     </datalist>
-                                </div>
+                                    </div>
 
-                                <div class="field form-grid-span-2">
-                                    <label class="label" for="home_address">Home Address</label>
-                                    <input class="input" id="home_address" name="home_address" type="text" autocomplete="street-address" tabindex="11" required />
-                                </div>
+                                    <div class="bm-field bm-span-2">
+                                        <label class="bm-label" for="home_address">Home Address</label>
+                                        <input class="bm-input" id="home_address" name="home_address" type="text" autocomplete="street-address" tabindex="11" required />
+                                    </div>
 
-                                <div class="field">
-                                    <label class="label" for="occupation">Occupation</label>
-                                    <input class="input" id="occupation" name="occupation" type="text" tabindex="12" required />
-                                </div>
+                                    <div class="bm-field">
+                                        <label class="bm-label" for="occupation">Occupation</label>
+                                        <input class="bm-input" id="occupation" name="occupation" type="text" tabindex="12" required />
+                                    </div>
 
-                                <div class="field">
-                                    <label class="label" for="position">Position</label>
-                                    <input class="input" id="position" name="position" type="text" tabindex="13" required />
-                                </div>
+                                    <div class="bm-field">
+                                        <label class="bm-label" for="position">Position</label>
+                                        <input class="bm-input" id="position" name="position" type="text" tabindex="13" required />
+                                    </div>
 
-                                <div class="field">
-                                    <label class="label" for="educational">Educational</label>
-                                    <input class="input" id="educational" name="educational" type="text" list="educational_list" tabindex="14" required />
+                                    <div class="bm-field">
+                                        <label class="bm-label" for="educational">Educational</label>
+                                        <input class="bm-input" id="educational" name="educational" type="text" list="educational_list" tabindex="14" required />
                                     <datalist id="educational_list">
                                         <option value="Elementary Level">
                                         <option value="Elementary Graduate">
@@ -258,11 +202,11 @@ $roleLabel = $role === 'admin' ? 'Administrator' : 'Employee';
                                         <option value="Master's Degree">
                                         <option value="Doctorate Degree">
                                     </datalist>
-                                </div>
+                                    </div>
 
-                                <div class="field">
-                                    <label class="label" for="religion">Religion</label>
-                                    <input class="input" id="religion" name="religion" type="text" list="religion_list" tabindex="15" required />
+                                    <div class="bm-field">
+                                        <label class="bm-label" for="religion">Religion</label>
+                                        <input class="bm-input" id="religion" name="religion" type="text" list="religion_list" tabindex="15" required />
                                     <datalist id="religion_list">
                                         <option value="Roman Catholic">
                                         <option value="Iglesia ni Cristo">
@@ -278,27 +222,28 @@ $roleLabel = $role === 'admin' ? 'Administrator' : 'Employee';
                                         <option value="Pentecostal">
                                         <option value="Other">
                                     </datalist>
+                                    </div>
+
+                                    <div class="bm-field">
+                                        <label class="bm-label" for="company_requesting_agency">Company/Requesting Agency</label>
+                                        <input class="bm-input" id="company_requesting_agency" name="company_requesting_agency" type="text" tabindex="16" required />
+                                    </div>
+
+                                    <div class="bm-field">
+                                        <label class="bm-label" for="date_of_birth">Date of Birth</label>
+                                        <input class="bm-input" id="date_of_birth" name="date_of_birth" type="date" tabindex="17" required />
+                                    </div>
                                 </div>
 
-                                <div class="field">
-                                    <label class="label" for="company_requesting_agency">Company/Requesting Agency</label>
-                                    <input class="input" id="company_requesting_agency" name="company_requesting_agency" type="text" tabindex="16" required />
+                                <div class="bm-actions">
+                                    <button class="btn btn-s" type="button" id="batchResetBtn">New Batch</button>
+                                    <button class="btn btn-p" type="submit">Generate DOCX</button>
                                 </div>
-
-                                <div class="field">
-                                    <label class="label" for="date_of_birth">Date of Birth</label>
-                                    <input class="input" id="date_of_birth" name="date_of_birth" type="date" tabindex="17" required />
-                                </div>
-                            </div>
-
-                            <div class="form-actions">
-                                <button class="primary-btn" type="button" id="batchResetBtn">New Batch</button>
-                                <button class="primary-btn" type="submit">Generate DOCX</button>
-                            </div>
-                        </form>
+                            </form>
+                        </div>
                     </div>
-                </section>
-            </main>
+                </div>
+            </div>
         </div>
 
         <iframe
@@ -308,15 +253,13 @@ $roleLabel = $role === 'admin' ? 'Administrator' : 'Employee';
             style="display:none"
         ></iframe>
 
-        <div class="backdrop" onclick="document.body.classList.remove('sidebar-open')"></div>
     </div>
 
     <script>
         (function () {
-            var dropdown = document.getElementById('profileDropdownEmployee');
-            if (!dropdown) return;
-
-            var trigger = dropdown.querySelector('.profile-trigger');
+            var dd = document.getElementById('bmAccountMenu');
+            if (!dd) return;
+            var trigger = dd.querySelector('.sb-trigger');
             if (!trigger) return;
 
             function setExpanded(isOpen) {
@@ -324,17 +267,17 @@ $roleLabel = $role === 'admin' ? 'Administrator' : 'Employee';
             }
 
             function openMenu() {
-                dropdown.classList.add('is-open');
+                dd.classList.add('is-open');
                 setExpanded(true);
             }
 
             function closeMenu() {
-                dropdown.classList.remove('is-open');
+                dd.classList.remove('is-open');
                 setExpanded(false);
             }
 
             function toggleMenu() {
-                if (dropdown.classList.contains('is-open')) {
+                if (dd.classList.contains('is-open')) {
                     closeMenu();
                     return;
                 }
@@ -357,8 +300,8 @@ $roleLabel = $role === 'admin' ? 'Administrator' : 'Employee';
             });
 
             document.addEventListener('click', function (e) {
-                if (!dropdown.classList.contains('is-open')) return;
-                if (dropdown.contains(e.target)) return;
+                if (!dd.classList.contains('is-open')) return;
+                if (dd.contains(e.target)) return;
                 closeMenu();
             });
 

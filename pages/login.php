@@ -33,6 +33,7 @@ $hasError = isset($_GET['error']);
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
 <title>ERMS — Login</title>
+<link rel="icon" type="image/svg+xml" href="../assets/img/erms-logo.svg"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
@@ -351,7 +352,7 @@ function LoginPage(){
       {/* LEFT PANEL */}
       <div className="left">
         <div className="brand">
-          <div className="brand-logo">E</div>
+          <img src="../assets/img/erms-logo.svg" alt="ERMS" style={{height:48,width:48}} />
           <div>
             <div className="brand-name">ERMS</div>
             <div className="brand-tag">Employee Requirements Management System</div>
@@ -392,7 +393,9 @@ function LoginPage(){
       <div className="right">
         <div className="card">
           <div className="card-hd">
-            <div className="card-logo">E</div>
+            <div style={{display:'flex',justifyContent:'center',marginBottom:16}}>
+              <img src="../assets/img/erms-logo.svg" alt="ERMS" style={{height:64,width:64}} />
+            </div>
             <div className="card-title">Welcome back</div>
             <div className="card-sub">Brain Master · Jubecer</div>
             <div className="card-pill">SECURE ACCESS</div>
