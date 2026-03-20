@@ -316,6 +316,38 @@
      $pdo = db();
      $api = (string)($_POST['api'] ?? '');
 
+     $auditLog = static function (PDO $pdo, string $action, ?string $targetType = null, ?string $targetId = null, $detail = null): void {
+         try {
+             $actorEmpId = (string)($_SESSION['user_employee_id'] ?? '');
+             $actorUserId = isset($_SESSION['user_id']) ? (int)$_SESSION['user_id'] : null;
+             $ip = (string)($_SERVER['REMOTE_ADDR'] ?? '');
+             $ua = (string)($_SERVER['HTTP_USER_AGENT'] ?? '');
+             $detailJson = null;
+             if ($detail !== null) {
+                 $detailJson = json_encode($detail, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+                 if ($detailJson === false) {
+                     $detailJson = null;
+                 }
+             }
+             $stmt = $pdo->prepare(
+                 'INSERT INTO audit_logs (actor_employee_id, actor_user_id, action, target_type, target_id, detail, ip_address, user_agent) '
+                 . 'VALUES (:actor_employee_id, :actor_user_id, :action, :target_type, :target_id, :detail, :ip_address, :user_agent)'
+             );
+             $stmt->execute([
+                 'actor_employee_id' => $actorEmpId !== '' ? $actorEmpId : null,
+                 'actor_user_id' => $actorUserId,
+                 'action' => $action,
+                 'target_type' => $targetType,
+                 'target_id' => $targetId,
+                 'detail' => $detailJson,
+                 'ip_address' => $ip !== '' ? $ip : null,
+                 'user_agent' => $ua !== '' ? substr($ua, 0, 255) : null,
+             ]);
+         } catch (Throwable $e) {
+             // Do not break main flow if audit logging fails.
+         }
+     };
+
     try {
         if (
             $api === 'list_users'
@@ -327,6 +359,8 @@
             || $api === 'update_user'
             || $api === 'toggle_user_active'
             || $api === 'delete_user'
+            || $api === 'sync_users_from_employees'
+            || $api === 'list_audit_logs'
         ) {
             if (!isset($_SESSION['user_role']) || (string)$_SESSION['user_role'] !== 'admin') {
                 http_response_code(403);
@@ -335,22 +369,137 @@
             }
         }
 
-        if ($api === 'list_users') {
+        if ($api === 'list_audit_logs') {
+            $q = trim((string)($_POST['q'] ?? ''));
+            $action = trim((string)($_POST['action'] ?? ''));
+            $actor = trim((string)($_POST['actor_employee_id'] ?? ''));
+            $page = isset($_POST['page']) ? (int)$_POST['page'] : 1;
+            $per = isset($_POST['per']) ? (int)$_POST['per'] : 25;
+            if ($page < 1) {
+                $page = 1;
+            }
+            if ($per < 5) {
+                $per = 5;
+            }
+            if ($per > 100) {
+                $per = 100;
+            }
+            $offset = ($page - 1) * $per;
+
+            $where = [];
+            $params = [];
+
+            if ($action !== '') {
+                $where[] = 'al.action = :action';
+                $params['action'] = $action;
+            }
+            if ($actor !== '') {
+                $where[] = 'al.actor_employee_id = :actor_employee_id';
+                $params['actor_employee_id'] = $actor;
+            }
+            if ($q !== '') {
+                $where[] = '(al.target_id LIKE :q OR al.detail LIKE :q OR al.action LIKE :q OR al.actor_employee_id LIKE :q)';
+                $params['q'] = '%' . $q . '%';
+            }
+
+            $whereSql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
+
+            $countStmt = $pdo->prepare('SELECT COUNT(*) AS c FROM audit_logs al ' . $whereSql);
+            $countStmt->execute($params);
+            $total = (int)(($countStmt->fetch())['c'] ?? 0);
+
+            $sql =
+                'SELECT al.id, al.actor_employee_id, al.actor_user_id, al.action, al.target_type, al.target_id, al.detail, al.ip_address, al.user_agent, al.created_at '
+                . 'FROM audit_logs al '
+                . $whereSql . ' '
+                . 'ORDER BY al.id DESC '
+                . 'LIMIT ' . (int)$per . ' OFFSET ' . (int)$offset;
+            $stmt = $pdo->prepare($sql);
+            $stmt->execute($params);
+            $rows = $stmt->fetchAll();
+            echo json_encode([
+                'ok' => true,
+                'logs' => $rows,
+                'total' => $total,
+                'page' => $page,
+                'per' => $per,
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+
+        if ($api === 'sync_users_from_employees') {
             try {
-                $rows = $pdo
-                    ->query(
-                        'SELECT '
-                        . 'u.id, u.employee_id, u.role, u.is_active, u.deactivated_at, u.created_at, u.updated_at, '
-                        . 'e.full_name, e.email, e.starting_date '
-                        . 'FROM users u '
-                        . 'LEFT JOIN employees e ON e.employee_id = u.employee_id '
-                        . 'ORDER BY u.created_at DESC, u.id DESC'
-                    )
-                    ->fetchAll();
+                $stmt = $pdo->prepare(
+                    'UPDATE users u '
+                    . 'JOIN employees e ON e.employee_id = u.employee_id '
+                    . 'SET u.full_name = e.full_name, u.email = e.email, u.starting_date = e.starting_date'
+                );
+                $stmt->execute();
+                $updated = $stmt->rowCount();
+                echo json_encode(['ok' => true, 'updated' => $updated, 'message' => 'User data synced from employees.'], JSON_UNESCAPED_UNICODE);
+                exit;
             } catch (Throwable $e) {
-                $rows = $pdo
-                    ->query('SELECT id, employee_id, full_name, role, is_active, created_at, updated_at FROM users ORDER BY created_at DESC, id DESC')
-                    ->fetchAll();
+                http_response_code(400);
+                echo json_encode(['ok' => false, 'error' => 'Sync failed: ' . $e->getMessage()], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+        }
+
+        if ($api === 'list_users') {
+            // Get filter parameter (default: active only)
+            $statusFilter = isset($_GET['status']) ? trim((string)$_GET['status']) : 'active';
+            
+            try {
+                $sql = 'SELECT '
+                    . 'u.id, u.employee_id, u.role, u.is_active, u.deactivated_at, u.created_at, u.updated_at, '
+                    . 'e.full_name, e.email, e.starting_date '
+                    . 'FROM users u '
+                    . 'LEFT JOIN employees e ON e.employee_id = u.employee_id ';
+                
+                // Filter by status
+                if ($statusFilter === 'active') {
+                    $sql .= 'WHERE u.is_active = 1 ';
+                } elseif ($statusFilter === 'inactive') {
+                    $sql .= 'WHERE u.is_active = 0 ';
+                }
+                
+                $sql .= 'ORDER BY u.created_at DESC, u.id DESC';
+                
+                $rows = $pdo->query($sql)->fetchAll();
+            } catch (Throwable $e) {
+                // Fallback without is_active filter if column doesn't exist
+                try {
+                    $rows = $pdo
+                        ->query(
+                            'SELECT '
+                            . 'u.id, u.employee_id, u.role, u.is_active, u.created_at, u.updated_at, '
+                            . 'e.full_name, e.email, e.starting_date '
+                            . 'FROM users u '
+                            . 'LEFT JOIN employees e ON e.employee_id = u.employee_id '
+                            . 'ORDER BY u.created_at DESC, u.id DESC'
+                        )
+                        ->fetchAll();
+                } catch (Throwable $e2) {
+                    try {
+                        $rows = $pdo
+                            ->query(
+                                'SELECT '
+                                . 'u.id, u.employee_id, u.role, '
+                                . '1 AS is_active, NULL AS deactivated_at, NULL AS created_at, NULL AS updated_at, '
+                                . 'e.full_name, e.email, e.starting_date '
+                                . 'FROM users u '
+                                . 'LEFT JOIN employees e ON e.employee_id = u.employee_id '
+                                . 'ORDER BY u.id DESC'
+                            )
+                            ->fetchAll();
+                    } catch (Throwable $e3) {
+                        $rows = $pdo
+                            ->query(
+                                "SELECT id, employee_id, role, 1 AS is_active, NULL AS deactivated_at, NULL AS created_at, NULL AS updated_at, '' AS full_name, '' AS email, '' AS starting_date FROM users ORDER BY id DESC"
+                            )
+                            ->fetchAll();
+                    }
+                }
             }
             echo json_encode(['ok' => true, 'users' => $rows], JSON_UNESCAPED_UNICODE);
             exit;
@@ -358,7 +507,7 @@
 
         if ($api === 'list_employees') {
             $rows = $pdo
-                ->query('SELECT id, employee_id, full_name, email, starting_date, role, is_active, deactivated_at, created_at, updated_at FROM employees ORDER BY created_at DESC, id DESC')
+                ->query('SELECT id, employee_id, full_name, email, starting_date, role, is_active, deactivated_at, created_at, updated_at FROM employees WHERE is_active = 1 ORDER BY created_at DESC, id DESC')
                 ->fetchAll();
             echo json_encode(['ok' => true, 'employees' => $rows], JSON_UNESCAPED_UNICODE);
             exit;
@@ -412,6 +561,8 @@
                 'is_active' => 1,
             ]);
 
+            $auditLog($pdo, 'create_employee', 'employee', $employeeId, ['role' => $roleIn]);
+
             echo json_encode(['ok' => true], JSON_UNESCAPED_UNICODE);
             exit;
         }
@@ -444,6 +595,8 @@
 
             $stmt = $pdo->prepare('UPDATE users SET role = :role WHERE employee_id = :employee_id');
             $stmt->execute(['role' => $roleIn, 'employee_id' => $empId]);
+
+            $auditLog($pdo, 'update_employee', 'employee', $empId, ['role' => $roleIn]);
 
             echo json_encode(['ok' => true], JSON_UNESCAPED_UNICODE);
             exit;
@@ -481,6 +634,29 @@
                 'deactivated_at' => $isActive === 1 ? null : date('Y-m-d H:i:s'),
                 'employee_id' => $empId,
             ]);
+
+            // Auto-deactivate/activate corresponding user account (with fallback for old schema)
+            try {
+                $userStmt = $pdo->prepare('UPDATE users SET is_active = :is_active, deactivated_at = :deactivated_at WHERE employee_id = :employee_id');
+                $userStmt->execute([
+                    'is_active' => $isActive === 1 ? 1 : 0,
+                    'deactivated_at' => $isActive === 1 ? null : date('Y-m-d H:i:s'),
+                    'employee_id' => $empId,
+                ]);
+            } catch (Throwable $e) {
+                // Try without deactivated_at if column doesn't exist
+                try {
+                    $userStmt = $pdo->prepare('UPDATE users SET is_active = :is_active WHERE employee_id = :employee_id');
+                    $userStmt->execute([
+                        'is_active' => $isActive === 1 ? 1 : 0,
+                        'employee_id' => $empId,
+                    ]);
+                } catch (Throwable $e2) {
+                    // Old schema without is_active - skip auto-deactivation
+                }
+            }
+
+            $auditLog($pdo, 'toggle_employee_active', 'employee', $empId, ['is_active' => $isActive === 1 ? 1 : 0]);
 
             echo json_encode(['ok' => true], JSON_UNESCAPED_UNICODE);
             exit;
@@ -523,6 +699,8 @@
                 'is_active' => 1,
             ]);
 
+            $auditLog($pdo, 'create_user', 'user', $employeeId, ['role' => $roleIn]);
+
             echo json_encode(['ok' => true], JSON_UNESCAPED_UNICODE);
             exit;
         }
@@ -556,6 +734,8 @@
 
             $stmt = $pdo->prepare('DELETE FROM users WHERE id = :id');
             $stmt->execute(['id' => $userId]);
+
+            $auditLog($pdo, 'delete_user', 'user', (string)$userId, null);
             echo json_encode(['ok' => true], JSON_UNESCAPED_UNICODE);
             exit;
         }
@@ -586,6 +766,8 @@
                     'id' => $userId,
                 ]);
             }
+
+            $auditLog($pdo, 'update_user', 'user', (string)$userId, ['password_changed' => ($password !== '')]);
 
             echo json_encode(['ok' => true], JSON_UNESCAPED_UNICODE);
             exit;
@@ -624,6 +806,8 @@
                 'deactivated_at' => $isActive === 1 ? null : date('Y-m-d H:i:s'),
                 'id' => $userId,
             ]);
+
+            $auditLog($pdo, 'toggle_user_active', 'user', (string)$userId, ['is_active' => $isActive === 1 ? 1 : 0]);
 
             echo json_encode(['ok' => true], JSON_UNESCAPED_UNICODE);
             exit;
@@ -1552,8 +1736,9 @@ function Clock(){
   return <span className="tb-clock">{D[t.getDay()]}, {Mo[t.getMonth()]} {t.getDate()} &nbsp;·&nbsp; {t.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}</span>;
 }
 
-async function apiPost(fd){
-  const r=await fetch('home.php',{method:'POST',body:fd,credentials:'same-origin'});
+async function apiPost(fd,urlParams=''){
+  const url='home.php'+urlParams;
+  const r=await fetch(url,{method:'POST',body:fd,credentials:'same-origin'});
   const j=await r.json().catch(()=>({ok:false,error:'Invalid server response.'}));
   if(!r.ok||!j||j.ok!==true){throw new Error((j&&j.error)?j.error:'Request failed.');}
   return j;
@@ -2564,6 +2749,15 @@ function UserManagement(){
 
   const [employees,setEmployees]=useState([]);
   const [users,setUsers]=useState([]);
+  const [auditLogs,setAuditLogs]=useState([]);
+  const [auditTotal,setAuditTotal]=useState(0);
+  const [auditPage,setAuditPage]=useState(1);
+  const [auditPer,setAuditPer]=useState(25);
+  const [auditQ,setAuditQ]=useState('');
+  const [auditAction,setAuditAction]=useState('');
+  const [auditActor,setAuditActor]=useState('');
+  const [auditLoading,setAuditLoading]=useState(false);
+  const [auditErr,setAuditErr]=useState('');
   const [loading,setLoading]=useState(false);
   const [err,setErr]=useState('');
   const [q,setQ]=useState('');
@@ -2595,11 +2789,13 @@ function UserManagement(){
     })));
   };
 
-  const loadUsers=async()=>{
+  const loadUsers=async(statusFilter='active')=>{
     if(!isAdmin)return;
     const fd=new FormData();
     fd.append('api','list_users');
-    const j=await apiPost(fd);
+    // Add status as query parameter
+    const urlParams = statusFilter !== 'all' ? `?status=${statusFilter}` : '';
+    const j=await apiPost(fd, urlParams);
     const arr=Array.isArray(j.users)?j.users:[];
     setUsers(arr.map(u=>({
       id:Number(u.id),
@@ -2620,13 +2816,76 @@ function UserManagement(){
     setLoading(true);
     setErr('');
     try{
-      await Promise.all([loadEmployees(),loadUsers()]);
+      await loadEmployees();
+      await loadUsers('active');
     }catch(e){
       setErr(String(e&&e.message?e.message:e));
     }finally{setLoading(false);}
   };
 
+  const loadAudit=async(nextPage=auditPage,nextPer=auditPer)=>{
+    if(!isAdmin)return;
+    setAuditLoading(true);
+    setAuditErr('');
+    try{
+      const fd=new FormData();
+      fd.append('api','list_audit_logs');
+      fd.append('page',String(nextPage));
+      fd.append('per',String(nextPer));
+      fd.append('q',auditQ||'');
+      fd.append('action',auditAction||'');
+      fd.append('actor_employee_id',auditActor||'');
+      const j=await apiPost(fd);
+      const rows=Array.isArray(j.logs)?j.logs:[];
+      setAuditLogs(rows.map(r=>({
+        id:Number(r.id),
+        actor_employee_id:String(r.actor_employee_id||''),
+        actor_user_id:r.actor_user_id===null?null:Number(r.actor_user_id),
+        action:String(r.action||''),
+        target_type:String(r.target_type||''),
+        target_id:String(r.target_id||''),
+        detail:String(r.detail||''),
+        ip_address:String(r.ip_address||''),
+        user_agent:String(r.user_agent||''),
+        created_at:String(r.created_at||''),
+      })));
+      setAuditTotal(Number(j.total||0));
+      setAuditPage(Number(j.page||nextPage)||nextPage);
+      setAuditPer(Number(j.per||nextPer)||nextPer);
+    }catch(e){
+      setAuditErr(String(e&&e.message?e.message:e));
+    }finally{setAuditLoading(false);}
+  };
+
+  const syncUsers=async()=>{
+    try{
+      const fd=new FormData();
+      fd.append('api','sync_users_from_employees');
+      const j=await apiPost(fd);
+      if(j&&j.ok){
+        alert(`Synced ${j.updated||0} user(s) with employee data.`);
+        await loadUsers();
+      }else{
+        alert(j&&j.error?j.error:'Sync failed.');
+      }
+    }catch(err){
+      alert(String(err&&err.message?err.message:err));
+    }
+  };
+
   useEffect(()=>{loadAll();},[]);
+
+  useEffect(()=>{
+    if(tab==='accounts'&&users.length>0){
+      syncUsers();
+    }
+  },[tab]);
+
+  useEffect(()=>{
+    if(tab==='audit'){
+      loadAudit(1,auditPer);
+    }
+  },[tab]);
 
   const roleLabel=(r)=>{
     if(r==='security_operation')return 'Security Operation';
@@ -2639,6 +2898,72 @@ function UserManagement(){
     return x.is_active
       ?<span className="badge bv">Active</span>
       :<span className="badge bm">Inactive</span>;
+  };
+
+  const fmtDT=(iso)=>{
+    if(!iso)return '—';
+    const d=new Date(String(iso).replace(' ','T'));
+    if(Number.isNaN(d.getTime()))return String(iso);
+    return new Intl.DateTimeFormat('en-US',{
+      year:'numeric',month:'short',day:'2-digit',
+      hour:'2-digit',minute:'2-digit'
+    }).format(d);
+  };
+
+  const actionLabel=(a)=>({
+    create_employee:'Created employee',
+    update_employee:'Updated employee',
+    toggle_employee_active:'Changed employee status',
+    create_user:'Created user account',
+    update_user:'Updated user account',
+    toggle_user_active:'Changed account status',
+    delete_user:'Deleted user account',
+    login_success:'Login success',
+    login_failed:'Login failed',
+    account_setup_requested:'Requested account setup link',
+    account_setup_request_failed:'Account setup request failed',
+    account_setup_token_invalid:'Account setup link invalid',
+    account_setup_token_used:'Account setup link already used',
+    account_setup_token_expired:'Account setup link expired',
+    account_password_set:'Password created',
+    account_password_set_failed:'Password creation failed',
+  }[a]||a||'—');
+
+  const targetLabel=(type,id)=>{
+    const t=String(type||'');
+    const v=String(id||'');
+    if(!t&&!v)return '—';
+    if(t==='employee')return `Employee: ${v||'—'}`;
+    if(t==='user'){
+      if(/^[A-Z]{2,10}-\d{3,}$/.test(v))return `User: ${v}`;
+      return `User ID: ${v||'—'}`;
+    }
+    return `${t||'Target'}: ${v||'—'}`;
+  };
+
+  const detailLabel=(s)=>{
+    const raw=String(s||'');
+    if(!raw)return '—';
+    try{
+      const o=JSON.parse(raw);
+      if(o&&typeof o==='object'){
+        if(Object.prototype.hasOwnProperty.call(o,'is_active')){
+          return `Set status to ${Number(o.is_active)===1?'Active':'Inactive'}`;
+        }
+        if(Object.prototype.hasOwnProperty.call(o,'role')){
+          return `Role: ${roleLabel(String(o.role||''))}`;
+        }
+        if(Object.prototype.hasOwnProperty.call(o,'password_changed')){
+          return Number(o.password_changed)===1||o.password_changed===true?'Password changed':'No password change';
+        }
+        const keys=Object.keys(o);
+        if(keys.length===0)return '—';
+        return keys.slice(0,6).map(k=>`${k}: ${String(o[k])}`).join(', ');
+      }
+      return raw;
+    }catch(e){
+      return raw;
+    }
   };
 
   const toggleEmployee=async(e)=>{
@@ -2672,7 +2997,8 @@ function UserManagement(){
     .filter(e=>!users.some(u=>u.employee_id===e.employee_id));
 
   const lq=q.trim().toLowerCase();
-  const data=(tab==='employees'?employees:users)
+  const listSrc=(tab==='employees')?employees:((tab==='accounts')?users:[]);
+  const data=listSrc
     .filter(x=>{
       if(rf==='ALL')return true;
       return String(x.role||'')===rf;
@@ -2758,31 +3084,60 @@ function UserManagement(){
         <div className="tctrl">
           <button className={tab==='employees'?'btn btn-s sm':'btn btn-g sm'} onClick={()=>setTab('employees')}>Employees</button>
           <button className={tab==='accounts'?'btn btn-s sm':'btn btn-g sm'} onClick={()=>setTab('accounts')}>User Accounts</button>
+          <button className={tab==='audit'?'btn btn-s sm':'btn btn-g sm'} onClick={()=>setTab('audit')}>Audit Logs</button>
           <div style={{flex:1}} />
 
-          <div className="sw" style={{maxWidth:360}}>
-            <Ic.search/>
-            <input className="si" value={q} onChange={e=>setQ(e.target.value)} placeholder={tab==='employees'?'Search employee id, name, role…':'Search user id, name, role…'} />
-          </div>
-          <select className="ts" value={rf} onChange={e=>setRf(e.target.value)}>
-            <option value="ALL">All Roles</option>
-            <option value="admin">Administrator</option>
-            <option value="security_operation">Security Operation</option>
-            <option value="employee">Employee</option>
-          </select>
-          <select className="ts" value={af} onChange={e=>setAf(e.target.value)}>
-            <option value="ALL">All Status</option>
-            <option value="ACTIVE">Active</option>
-            <option value="INACTIVE">Inactive</option>
-          </select>
+          {tab!=='audit'
+            ?(
+              <>
+                <div className="sw" style={{maxWidth:360}}>
+                  <Ic.search/>
+                  <input className="si" value={q} onChange={e=>setQ(e.target.value)} placeholder={tab==='employees'?'Search employee id, name, role…':'Search user id, name, role…'} />
+                </div>
+                <select className="ts" value={rf} onChange={e=>setRf(e.target.value)}>
+                  <option value="ALL">All Roles</option>
+                  <option value="admin">Administrator</option>
+                  <option value="security_operation">Security Operation</option>
+                  <option value="employee">Employee</option>
+                </select>
+                <select className="ts" value={af} onChange={e=>setAf(e.target.value)}>
+                  <option value="ALL">All Status</option>
+                  <option value="ACTIVE">Active</option>
+                  <option value="INACTIVE">Inactive</option>
+                </select>
 
-          {tab==='employees'
-            ?<button className="btn btn-p sm" onClick={()=>setEmpModal({mode:'add'})}><Ic.plus/>Add Employee</button>
-            :<button className="btn btn-p sm" onClick={()=>setAcctModal({mode:'add'})} disabled={employeesWithoutAccount.length===0} title={employeesWithoutAccount.length===0?'No active employees without accounts':''}><Ic.plus/>Create Account</button>
+                {tab==='employees'
+                  ?<button className="btn btn-p sm" onClick={()=>setEmpModal({mode:'add'})}><Ic.plus/>Add Employee</button>
+                  :<button className="btn btn-p sm" onClick={()=>setAcctModal({mode:'add'})} disabled={employeesWithoutAccount.length===0} title={employeesWithoutAccount.length===0?'No active employees without accounts':''}><Ic.plus/>Create Account</button>
+                }
+                <button className="btn btn-s sm" onClick={async()=>{
+                  if(tab==='accounts'){
+                    await loadUsers('inactive');
+                  }
+                  setArch(true);
+                }}>Archive</button>
+                <button className="btn btn-g sm" onClick={()=>{setQ('');setRf('ALL');setAf('ALL');}}>Reset</button>
+                <button className="btn btn-s sm" onClick={loadAll} disabled={loading}>{loading?'Refreshing…':'Refresh'}</button>
+              </>
+            )
+            :(
+              <>
+                <div className="sw" style={{maxWidth:360}}>
+                  <Ic.search/>
+                  <input className="si" value={auditQ} onChange={e=>setAuditQ(e.target.value)} placeholder="Search actor, action, target, or details…" />
+                </div>
+                <input className="fi" value={auditActor} onChange={e=>setAuditActor(e.target.value)} placeholder="Actor ID (e.g. ADMIN-001)" style={{maxWidth:220}}/>
+                <input className="fi" value={auditAction} onChange={e=>setAuditAction(e.target.value)} placeholder="Action (e.g. toggle_user_active)" style={{maxWidth:240}}/>
+                <select className="ts" value={String(auditPer)} onChange={e=>setAuditPer(parseInt(e.target.value,10)||25)}>
+                  <option value="25">25 / page</option>
+                  <option value="50">50 / page</option>
+                  <option value="100">100 / page</option>
+                </select>
+                <button className="btn btn-g sm" onClick={()=>{setAuditQ('');setAuditActor('');setAuditAction('');setAuditPage(1);}}>Reset</button>
+                <button className="btn btn-s sm" onClick={()=>loadAudit(1,auditPer)} disabled={auditLoading}>{auditLoading?'Refreshing…':'Refresh'}</button>
+              </>
+            )
           }
-          <button className="btn btn-s sm" onClick={()=>setArch(true)}>Archive</button>
-          <button className="btn btn-g sm" onClick={()=>{setQ('');setRf('ALL');setAf('ALL');}}>Reset</button>
-          <button className="btn btn-s sm" onClick={loadAll} disabled={loading}>{loading?'Refreshing…':'Refresh'}</button>
         </div>
 
         {err&&(
@@ -2791,7 +3146,7 @@ function UserManagement(){
           </div>
         )}
 
-        {!err&&(
+        {!err&&tab!=='audit'&&(
           <>
             <table>
               <thead>
@@ -2839,6 +3194,65 @@ function UserManagement(){
                 }
               </tbody>
             </table>
+          </>
+        )}
+
+        {tab==='audit'&&(
+          <>
+            {auditErr&&(
+              <div className="empty" style={{padding:18}}>
+                <div className="es" style={{color:'var(--error-700)'}}>{auditErr}</div>
+              </div>
+            )}
+            {!auditErr&&(
+              <>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Actor</th>
+                      <th>Action</th>
+                      <th>Target</th>
+                      <th>IP</th>
+                      <th>Detail</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditLoading
+                      ?<tr><td colSpan="6" style={{padding:18,color:'var(--gray-500)'}}>Loading…</td></tr>
+                      :(auditLogs.length===0
+                        ?<tr><td colSpan="6" style={{padding:18,color:'var(--gray-500)'}}>No logs found.</td></tr>
+                        :auditLogs.map(l=>{
+                          const dt=fmtDT(l.created_at);
+                          const tgt=targetLabel(l.target_type,l.target_id);
+                          const actor=l.actor_employee_id||'—';
+                          const act=actionLabel(l.action);
+                          const det=detailLabel(l.detail);
+                          return(
+                            <tr key={l.id}>
+                              <td style={{fontFamily:'var(--mono)',fontSize:12,color:'var(--gray-600)'}}>{dt||'—'}</td>
+                              <td><span className="gno">{actor}</span></td>
+                              <td style={{fontSize:12,color:'var(--gray-600)',fontWeight:600}}>{act}</td>
+                              <td style={{fontSize:12,color:'var(--gray-600)'}}>{tgt||'—'}</td>
+                              <td style={{fontFamily:'var(--mono)',fontSize:12,color:'var(--gray-600)'}}>{l.ip_address||'—'}</td>
+                              <td style={{fontSize:12,color:'var(--gray-600)'}}>{det}</td>
+                            </tr>
+                          );
+                        })
+                      )
+                    }
+                  </tbody>
+                </table>
+
+                <div className="pgn" style={{marginTop:12}}>
+                  <div className="pgi">Showing {auditTotal===0?0:((auditPage-1)*auditPer+1)}–{Math.min(auditPage*auditPer,auditTotal)} of {auditTotal} logs</div>
+                  <div className="pgb">
+                    <button className="pb" onClick={()=>{const np=Math.max(1,auditPage-1);setAuditPage(np);loadAudit(np,auditPer);}} disabled={auditLoading||auditPage<=1}><Ic.chL/></button>
+                    <button className="pb" onClick={()=>{const np=auditPage+1;setAuditPage(np);loadAudit(np,auditPer);}} disabled={auditLoading||auditPage*auditPer>=auditTotal}><Ic.chR/></button>
+                  </div>
+                </div>
+              </>
+            )}
           </>
         )}
       </div>

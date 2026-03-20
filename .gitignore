@@ -7,6 +7,15 @@
 # Local runtime / generated files
 /auth/remarks_index.txt
 
+# Local mail config (do not commit secrets)
+/includes/mail_config.local.php
+
+# Local email fallback log
+/storage/mail_outbox.log
+
+# Local SMTP debug log
+/storage/mail_debug.log
+
 # Uploads (runtime)
 /uploads/
 

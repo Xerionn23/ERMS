@@ -30,6 +30,35 @@ CREATE TABLE IF NOT EXISTS users (
     UNIQUE KEY uq_users_employee_id (employee_id)
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS account_invites (
+    id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    employee_id VARCHAR(50) NOT NULL,
+    token_hash CHAR(64) NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    used_at TIMESTAMP NULL DEFAULT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_account_invites_employee_id (employee_id),
+    UNIQUE KEY uq_account_invites_token_hash (token_hash)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    actor_employee_id VARCHAR(50) NULL,
+    actor_user_id INT UNSIGNED NULL,
+    action VARCHAR(80) NOT NULL,
+    target_type VARCHAR(40) NULL,
+    target_id VARCHAR(80) NULL,
+    detail TEXT NULL,
+    ip_address VARCHAR(64) NULL,
+    user_agent VARCHAR(255) NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_audit_logs_created_at (created_at),
+    KEY idx_audit_logs_actor_employee_id (actor_employee_id),
+    KEY idx_audit_logs_action (action)
+) ENGINE=InnoDB;
+
 ALTER TABLE users
     MODIFY role ENUM('admin', 'security_operation', 'employee') NOT NULL DEFAULT 'employee';
 

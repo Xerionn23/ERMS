@@ -1,0 +1,12 @@
+<?php
+
+return [
+    'smtp' => [
+        'host' => 'smtp.gmail.com',
+        'port' => 587,
+        'username' => 'erms.system@gmail.com',
+        'app_password' => 'tcfv dzva mlun bueu',
+        'from_address' => 'rotchercadorna16@gmail.com',
+        'from_name' => 'ERMS',
+    ],
+];

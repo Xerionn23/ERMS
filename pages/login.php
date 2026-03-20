@@ -254,6 +254,14 @@ body{
   animation:fadeUp .2s ease;
 }
 .err-msg svg{width:14px;height:14px;flex-shrink:0;}
+.ok-msg{
+  display:flex;align-items:center;gap:5px;
+  font-size:12px;font-weight:600;color:var(--success-500);
+  background:rgba(18,183,106,0.08);border:1px solid rgba(18,183,106,0.25);
+  border-radius:8px;padding:8px 12px;
+  animation:fadeUp .2s ease;
+}
+.ok-msg svg{width:14px;height:14px;flex-shrink:0;}
 
 /* REMEMBER ROW */
 .remember-row{display:flex;align-items:center;justify-content:space-between;}
@@ -329,7 +337,7 @@ body{
 </script>
 
 <script type="text/babel">
-const {useState}=React;
+const {useState,useEffect}=React;
 
 const IcShield=()=><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>;
 const IcEye=()=><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>;
@@ -346,6 +354,40 @@ function LoginPage(){
   const [pw,setPw]=useState('');
   const [showPw,setShowPw]=useState(false);
   const [error,setError]=useState((window.__ERMS_LOGIN__&&window.__ERMS_LOGIN__.hasError)?'Invalid username or password. Please try again.':'');
+  const [view,setView]=useState('login');
+  const [setupId,setSetupId]=useState('');
+  const [setupState,setSetupState]=useState({sending:false,type:'',msg:''});
+  const [cooldown,setCooldown]=useState(0);
+
+  useEffect(()=>{
+    if(cooldown<=0)return;
+    const t=setTimeout(()=>setCooldown(v=>Math.max(0,v-1)),1000);
+    return()=>clearTimeout(t);
+  },[cooldown]);
+
+  const sendSetup=async()=>{
+    if(!setupId.trim()){
+      setSetupState({sending:false,type:'err',msg:'Please enter your User ID.'});
+      return;
+    }
+    setSetupState({sending:true,type:'',msg:''});
+    try{
+      const fd=new FormData();
+      fd.append('employee_id',setupId.trim());
+      const r=await fetch('../auth/request_account_setup.php',{method:'POST',body:fd,credentials:'same-origin'});
+      const j=await r.json().catch(()=>null);
+      if(!r.ok||!j||j.ok!==true){
+        if(r&&r.status===429){
+          setCooldown(15);
+        }
+        throw new Error((j&&j.error)?j.error:'Request failed.');
+      }
+      setSetupState({sending:false,type:'ok',msg:String(j.message||'Setup link sent. Please check your email.')});
+      setCooldown(15);
+    }catch(e){
+      setSetupState({sending:false,type:'err',msg:String(e&&e.message?e.message:e)});
+    }
+  };
 
   return(
     <div className="shell">
@@ -401,6 +443,7 @@ function LoginPage(){
             <div className="card-pill">SECURE ACCESS</div>
           </div>
 
+          {view==='login' ? (
           <form className="form" method="post" action="../auth/authenticate.php">
             {error&&(
               <div className="err-msg">
@@ -459,11 +502,76 @@ function LoginPage(){
               Sign in <IcArrow/>
             </button>
           </form>
+          ) : (
+          <div className="form">
+            {setupState.msg&&(
+              <div className={setupState.type==='ok'?'ok-msg':'err-msg'}>
+                {setupState.type==='ok'?<IcCheck/>:<IcAlert/>}
+                {setupState.msg}
+              </div>
+            )}
 
-          <div className="card-footer">
-            <IcLock/>
-            Authorized staff only. Activity is logged.
+            {(!setupState.msg || setupState.type!=='ok')&&(
+              <div className="card-footer" style={{marginTop:0}}>
+                <IcUsers/>
+                Enter your User ID. We will send a secure setup link to the email on file.
+              </div>
+            )}
+
+            <div className="fgrp">
+              <label className="fl">User ID</label>
+              <div className="inp-wrap">
+                <input
+                  className="inp inp-mono"
+                  placeholder="e.g. 2024-0001"
+                  value={setupId}
+                  onChange={e=>{setSetupId(e.target.value);}}
+                  autoComplete="username"
+                  spellCheck={false}
+                  disabled={setupState.sending}
+                  required
+                />
+              </div>
+            </div>
+
+            <button className="btn-signin" type="button" onClick={sendSetup} disabled={setupState.sending||cooldown>0}>
+              {setupState.sending
+                ?(<><span className="spinner"/> Sending…</>)
+                :(cooldown>0
+                  ?(<>Resend in {cooldown}s</>)
+                  :(<>Send setup link <IcArrow/></>)
+                )
+              }
+            </button>
+
+            {cooldown>0&&(
+              <div className="card-footer" style={{marginTop:8}}>
+                <IcLock/>
+                Please wait before requesting another email.
+              </div>
+            )}
           </div>
+          )}
+
+          <div className="card-footer" style={{marginTop:14}}>
+            {view==='login' ? (
+              <>
+                <span style={{color:'var(--gray-400)'}}>New here?</span>
+                <a href="#" onClick={e=>{e.preventDefault();setView('setup');setSetupId('');setSetupState({sending:false,type:'',msg:''});}} style={{color:'var(--navy-600)',textDecoration:'none',fontWeight:700}}>Create account</a>
+              </>
+            ) : (
+              <>
+                <a href="#" onClick={e=>{e.preventDefault();setView('login');setSetupId('');setSetupState({sending:false,type:'',msg:''});}} style={{color:'var(--navy-600)',textDecoration:'none',fontWeight:700}}>Back to sign in</a>
+              </>
+            )}
+          </div>
+
+          {view==='login'&&(
+            <div className="card-footer">
+              <IcLock/>
+              Authorized staff only. Activity is logged.
+            </div>
+          )}
         </div>
       </div>
     </div>
