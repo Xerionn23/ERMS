@@ -81,7 +81,7 @@
      CROSS JOIN requirement_types rt
      LEFT JOIN guard_requirements gr
          ON gr.guard_id = g.id AND gr.requirement_type_id = rt.id
-     WHERE rt.is_required = 1
+       WHERE rt.is_required = 1 AND g.status = 'active'
      GROUP BY g.id
  ) t
  ";
@@ -107,6 +107,7 @@
              "JOIN requirement_types rt ON rt.code = 'SECURITY_LICENSE'\n" .
              "JOIN guard_requirements gr ON gr.guard_id = g.id AND gr.requirement_type_id = rt.id\n" .
              "WHERE gr.expiry_date IS NOT NULL\n" .
+           "  AND g.status = 'active'\n" .
              "  AND gr.expiry_date <= DATE_ADD(CURDATE(), INTERVAL 6 MONTH)\n" .
              "ORDER BY (gr.expiry_date < CURDATE()) DESC, gr.expiry_date ASC, g.full_name ASC\n" .
              "LIMIT 20";
@@ -125,6 +126,7 @@
      g.agency,
      g.contact_no,
      g.deployed,
+       g.status AS record_status,
      SUM(CASE WHEN gr.id IS NULL THEN 1 ELSE 0 END) AS missing_count,
      SUM(CASE WHEN rt.code = 'SECURITY_LICENSE' AND gr.expiry_date IS NOT NULL AND gr.expiry_date < CURDATE() THEN 1 ELSE 0 END) AS expired_license,
      SUM(CASE WHEN rt.code = 'SECURITY_LICENSE' AND gr.expiry_date IS NOT NULL AND gr.expiry_date >= CURDATE() AND gr.expiry_date <= DATE_ADD(CURDATE(), INTERVAL 6 MONTH) THEN 1 ELSE 0 END) AS expiring_license,
@@ -133,7 +135,7 @@
  CROSS JOIN requirement_types rt
  LEFT JOIN guard_requirements gr
      ON gr.guard_id = g.id AND gr.requirement_type_id = rt.id
- WHERE rt.is_required = 1
+     WHERE rt.is_required = 1 AND g.status = 'active'
  GROUP BY g.id
  ORDER BY g.last_name ASC, g.first_name ASC, g.id ASC
  ";
@@ -147,7 +149,7 @@
  JOIN requirement_types rt ON rt.is_required = 1
  LEFT JOIN guard_requirements gr
      ON gr.guard_id = g.id AND gr.requirement_type_id = rt.id
- WHERE gr.id IS NULL
+     WHERE g.status = 'active' AND gr.id IS NULL
  ORDER BY g.id ASC, rt.id ASC
  ";
          $missingRows = $pdo->query($missingSql)->fetchAll();
@@ -164,6 +166,7 @@
              $gid = (int)($r['id'] ?? 0);
              $missingReqs = $missingByGuard[$gid] ?? [];
              $missingCount = (int)($r['missing_count'] ?? 0);
+           $recordStatus = (string)($r['record_status'] ?? 'active');
  
              $status = 'VALID';
              if ((int)($r['expired_license'] ?? 0) > 0) {
@@ -186,6 +189,7 @@
                  'deployed' => (string)($r['deployed'] ?? ''),
                  'bday' => (string)($r['birthdate'] ?? ''),
                  'age' => (int)($r['age'] ?? 0),
+               'recordStatus' => $recordStatus,
                  'status' => $status,
                  'expDate' => (string)($r['license_expiry_date'] ?? ''),
                  'missing' => $missingCount,
@@ -205,7 +209,8 @@
                  "FROM guards g\n" .
                  "JOIN requirement_types rt ON rt.code = 'SECURITY_LICENSE'\n" .
                  "JOIN guard_requirements gr ON gr.guard_id = g.id AND gr.requirement_type_id = rt.id\n" .
-                 "WHERE gr.expiry_date IS NOT NULL\n" .
+               "WHERE g.status = 'active'\n" .
+               "  AND gr.expiry_date IS NOT NULL\n" .
                  "ORDER BY gr.expiry_date ASC, g.full_name ASC\n" .
                  "LIMIT 250";
              $expRows = $pdo->query($expSql)->fetchAll();
@@ -221,7 +226,8 @@
                  "JOIN requirement_types rt ON rt.is_required = 1\n" .
                  "LEFT JOIN guard_requirements gr\n" .
                  "  ON gr.guard_id = g.id AND gr.requirement_type_id = rt.id\n" .
-                 "WHERE gr.id IS NULL\n" .
+               "WHERE g.status = 'active'\n" .
+               "  AND gr.id IS NULL\n" .
                  "ORDER BY g.full_name ASC, rt.id ASC";
              $missRows = $pdo->query($missSql)->fetchAll();
              $missBy = [];
@@ -506,9 +512,31 @@
         }
 
         if ($api === 'list_employees') {
-            $rows = $pdo
-                ->query('SELECT id, employee_id, full_name, email, starting_date, role, is_active, deactivated_at, created_at, updated_at FROM employees WHERE is_active = 1 ORDER BY created_at DESC, id DESC')
+          $statusFilter = isset($_GET['status']) ? trim((string)$_GET['status']) : 'active';
+
+          try {
+            $sql = 'SELECT id, employee_id, full_name, email, starting_date, role, is_active, deactivated_at, created_at, updated_at FROM employees ';
+
+            if ($statusFilter === 'active') {
+              $sql .= 'WHERE is_active = 1 ';
+            } elseif ($statusFilter === 'inactive') {
+              $sql .= 'WHERE is_active = 0 ';
+            }
+
+            $sql .= 'ORDER BY created_at DESC, id DESC';
+            $rows = $pdo->query($sql)->fetchAll();
+          } catch (Throwable $e) {
+            // Fallback for schemas missing the is_active/deactivated_at columns
+            try {
+              $rows = $pdo
+                ->query('SELECT id, employee_id, full_name, email, starting_date, role, 1 AS is_active, NULL AS deactivated_at, created_at, updated_at FROM employees ORDER BY created_at DESC, id DESC')
                 ->fetchAll();
+            } catch (Throwable $e2) {
+              $rows = $pdo
+                ->query("SELECT id, employee_id, full_name, email, starting_date, role, 1 AS is_active, NULL AS deactivated_at, NULL AS created_at, NULL AS updated_at FROM employees ORDER BY id DESC")
+                ->fetchAll();
+            }
+          }
             echo json_encode(['ok' => true, 'employees' => $rows], JSON_UNESCAPED_UNICODE);
             exit;
         }
@@ -813,6 +841,121 @@
             exit;
         }
 
+          if ($api === 'list_guards') {
+            $statusFilter = isset($_GET['status']) ? trim((string)$_GET['status']) : 'active';
+            $allowed = ['active', 'inactive', 'all'];
+            if (!in_array($statusFilter, $allowed, true)) {
+              $statusFilter = 'active';
+            }
+
+            $where = 'WHERE rt.is_required = 1';
+            $params = [];
+            if ($statusFilter === 'active' || $statusFilter === 'inactive') {
+              $where .= ' AND g.status = :gstatus';
+              $params['gstatus'] = $statusFilter;
+            }
+
+            $listSql =
+              'SELECT '
+              . 'g.id, g.guard_no, g.last_name, g.first_name, g.middle_name, g.suffix, g.birthdate, g.age, g.agency, g.contact_no, g.deployed, g.status AS record_status, '
+              . 'SUM(CASE WHEN gr.id IS NULL THEN 1 ELSE 0 END) AS missing_count, '
+              . 'SUM(CASE WHEN rt.code = \'SECURITY_LICENSE\' AND gr.expiry_date IS NOT NULL AND gr.expiry_date < CURDATE() THEN 1 ELSE 0 END) AS expired_license, '
+              . 'SUM(CASE WHEN rt.code = \'SECURITY_LICENSE\' AND gr.expiry_date IS NOT NULL AND gr.expiry_date >= CURDATE() AND gr.expiry_date <= DATE_ADD(CURDATE(), INTERVAL 6 MONTH) THEN 1 ELSE 0 END) AS expiring_license, '
+              . 'MAX(CASE WHEN rt.code = \'SECURITY_LICENSE\' THEN gr.expiry_date ELSE NULL END) AS license_expiry_date '
+              . 'FROM guards g '
+              . 'CROSS JOIN requirement_types rt '
+              . 'LEFT JOIN guard_requirements gr ON gr.guard_id = g.id AND gr.requirement_type_id = rt.id '
+              . $where . ' '
+              . 'GROUP BY g.id '
+              . 'ORDER BY g.last_name ASC, g.first_name ASC, g.id ASC';
+
+            $stmt = $pdo->prepare($listSql);
+            $stmt->execute($params);
+            $rows = $stmt->fetchAll();
+
+            $missingWhere = 'WHERE rt.is_required = 1 AND gr.id IS NULL';
+            $missingParams = [];
+            if ($statusFilter === 'active' || $statusFilter === 'inactive') {
+              $missingWhere .= ' AND g.status = :gstatus';
+              $missingParams['gstatus'] = $statusFilter;
+            }
+            $missingSql =
+              'SELECT g.id AS guard_id, rt.name AS requirement_name '
+              . 'FROM guards g '
+              . 'JOIN requirement_types rt ON rt.is_required = 1 '
+              . 'LEFT JOIN guard_requirements gr ON gr.guard_id = g.id AND gr.requirement_type_id = rt.id '
+              . $missingWhere . ' '
+              . 'ORDER BY g.id ASC, rt.id ASC';
+            $mstmt = $pdo->prepare($missingSql);
+            $mstmt->execute($missingParams);
+            $missingRows = $mstmt->fetchAll();
+
+            $missingByGuard = [];
+            foreach ($missingRows as $mr) {
+              $gid = (int)($mr['guard_id'] ?? 0);
+              $nm = (string)($mr['requirement_name'] ?? '');
+              if ($gid > 0 && $nm !== '') {
+                $missingByGuard[$gid][] = $nm;
+              }
+            }
+
+            $out = [];
+            foreach ($rows as $r) {
+              $gid = (int)($r['id'] ?? 0);
+              $missingReqs = $missingByGuard[$gid] ?? [];
+              $missingCount = (int)($r['missing_count'] ?? 0);
+              $recordStatus = (string)($r['record_status'] ?? 'active');
+
+              $status = 'VALID';
+              if ((int)($r['expired_license'] ?? 0) > 0) {
+                $status = 'EXPIRED';
+              } elseif ((int)($r['expiring_license'] ?? 0) > 0) {
+                $status = 'EXPIRING';
+              } elseif ($missingCount > 0) {
+                $status = 'MISSING';
+              }
+
+              $out[] = [
+                'id' => $gid,
+                'no' => (string)($r['guard_no'] ?? ''),
+                'last' => (string)($r['last_name'] ?? ''),
+                'first' => (string)($r['first_name'] ?? ''),
+                'mid' => (string)($r['middle_name'] ?? ''),
+                'suffix' => (string)($r['suffix'] ?? ''),
+                'agency' => (string)($r['agency'] ?? ''),
+                'contact' => (string)($r['contact_no'] ?? ''),
+                'deployed' => (string)($r['deployed'] ?? ''),
+                'bday' => (string)($r['birthdate'] ?? ''),
+                'age' => (int)($r['age'] ?? 0),
+                'recordStatus' => $recordStatus,
+                'status' => $status,
+                'expDate' => (string)($r['license_expiry_date'] ?? ''),
+                'missing' => $missingCount,
+                'missingReqs' => $missingReqs,
+              ];
+            }
+
+            echo json_encode(['ok' => true, 'guards' => $out], JSON_UNESCAPED_UNICODE);
+            exit;
+          }
+
+          if ($api === 'toggle_guard_active') {
+            $guardId = isset($_POST['guard_id']) ? (int)$_POST['guard_id'] : 0;
+            $isActive = isset($_POST['is_active']) ? (int)$_POST['is_active'] : 0;
+            if ($guardId <= 0) {
+              throw new RuntimeException('Invalid guard.');
+            }
+
+            $newStatus = $isActive === 1 ? 'active' : 'inactive';
+            $stmt = $pdo->prepare('UPDATE guards SET status = :status WHERE id = :id');
+            $stmt->execute(['status' => $newStatus, 'id' => $guardId]);
+
+            $auditLog($pdo, 'toggle_guard_active', 'guard', (string)$guardId, ['status' => $newStatus]);
+
+            echo json_encode(['ok' => true], JSON_UNESCAPED_UNICODE);
+            exit;
+          }
+
         if ($api === 'get_guard_requirements') {
             $guardId = isset($_POST['guard_id']) ? (int)$_POST['guard_id'] : 0;
             if ($guardId <= 0) {
@@ -874,8 +1017,17 @@
              $deployedDate = $deployed !== '' ? $deployed : null;
              $ageRaw = trim((string)($_POST['age'] ?? ''));
              $age = null;
-             if ($ageRaw !== '' && ctype_digit($ageRaw)) {
-                 $age = (int)$ageRaw;
+             if ($birthdate !== null) {
+               try {
+                 $dob = new DateTime($birthdate);
+                 $today = new DateTime('today');
+                 $age = (int)$dob->diff($today)->y;
+               } catch (Throwable $e) {
+                 $age = null;
+               }
+             }
+             if ($age === null && $ageRaw !== '' && ctype_digit($ageRaw)) {
+               $age = (int)$ageRaw;
              }
 
              if ($last === '' || $first === '') {
@@ -934,8 +1086,17 @@
              $deployedDate = $deployed !== '' ? $deployed : null;
              $ageRaw = trim((string)($_POST['age'] ?? ''));
              $age = null;
-             if ($ageRaw !== '' && ctype_digit($ageRaw)) {
-                 $age = (int)$ageRaw;
+             if ($birthdate !== null) {
+               try {
+                 $dob = new DateTime($birthdate);
+                 $today = new DateTime('today');
+                 $age = (int)$dob->diff($today)->y;
+               } catch (Throwable $e) {
+                 $age = null;
+               }
+             }
+             if ($age === null && $ageRaw !== '' && ctype_digit($ageRaw)) {
+               $age = (int)$ageRaw;
              }
 
              if ($last === '' || $first === '') {
@@ -1133,7 +1294,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
-<script src="https://cdn.jsdelivr.net/npm/apexcharts@3.49.1"></script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
 <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -1205,12 +1366,15 @@ button,input,select{font-family:var(--f);}
 .sb-top{padding:20px 16px 16px;border-bottom:1px solid rgba(255,255,255,0.06);}
 .sb-brand{display:flex;align-items:center;gap:12px;}
 .sb-logo{
-  width:36px;height:36px;border-radius:10px;
-  background:var(--navy-700);
+  width:38px;height:38px;border-radius:12px;
+  background:rgba(255,255,255,0.10);
+  border:1px solid rgba(255,255,255,0.14);
   display:flex;align-items:center;justify-content:center;
-  font-weight:800;font-size:15px;color:#fff;flex-shrink:0;
-  box-shadow:0 0 0 1px rgba(255,255,255,0.12),0 2px 8px rgba(53,56,205,0.5);
+  padding:6px;
+  flex-shrink:0;
+  box-shadow:0 0 0 1px rgba(255,255,255,0.06),0 10px 20px rgba(0,0,0,0.22);
 }
+.sb-logo img{width:100%;height:100%;object-fit:contain;display:block;}
 .sb-name{font-size:15px;font-weight:700;color:#fff;letter-spacing:-0.3px;}
 .sb-tagline{font-size:11px;color:rgba(255,255,255,0.3);margin-top:2px;font-weight:500;}
 
@@ -1234,6 +1398,7 @@ button,input,select{font-family:var(--f);}
   width:3px;border-radius:0 3px 3px 0;background:var(--navy-500);
 }
 .sb-item svg{width:15px;height:15px;flex-shrink:0;}
+.sb-label{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .sb-pill{
   margin-left:auto;background:rgba(240,68,56,0.2);color:#FDA29B;
   font-size:10px;font-weight:700;padding:2px 6px;border-radius:20px;
@@ -1248,8 +1413,9 @@ button,input,select{font-family:var(--f);}
   display:flex;align-items:center;justify-content:center;
   font-size:11px;font-weight:700;color:#fff;flex-shrink:0;
 }
-.sb-uname{font-size:13px;font-weight:600;color:rgba(255,255,255,0.85);}
-.sb-urole{font-size:11px;color:rgba(255,255,255,0.3);margin-top:1px;}
+.sb-meta{min-width:0;flex:1;display:flex;flex-direction:column;align-items:flex-start;text-align:left;}
+.sb-uname{font-size:13px;font-weight:600;color:rgba(255,255,255,0.85);line-height:1.2;}
+.sb-urole{font-size:11px;color:rgba(255,255,255,0.3);margin-top:1px;line-height:1.2;}
 
 .sb-actions{display:flex;gap:8px;margin-top:12px;}
 .sb-act{
@@ -1306,6 +1472,12 @@ button,input,select{font-family:var(--f);}
 .sb-mi.d{color:#FDA29B;}
 .sb-mi.d:hover{background:rgba(240,68,56,0.12);color:#FEB2B2;}
 
+.sb-backdrop{
+  position:fixed;inset:0;background:rgba(16,24,40,0.35);
+  opacity:0;pointer-events:none;transition:opacity .2s;z-index:40;
+}
+.shell.sb-open .sb-backdrop{opacity:1;pointer-events:auto;}
+
 /* MAIN */
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;}
 
@@ -1317,14 +1489,25 @@ button,input,select{font-family:var(--f);}
   display:flex;align-items:center;justify-content:space-between;
   flex-shrink:0;box-shadow:var(--sx);
 }
-.tb-pg{font-size:16px;font-weight:700;color:var(--gray-900);letter-spacing:-0.3px;}
-.tb-crumb{font-size:12px;color:var(--gray-400);margin-top:2px;}
-.tb-r{display:flex;align-items:center;gap:10px;}
+.tb-left{display:flex;align-items:center;gap:10px;min-width:0;}
+.tb-title{min-width:0;}
+.tb-pg{font-size:16px;font-weight:700;color:var(--gray-900);letter-spacing:-0.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tb-crumb{font-size:12px;color:var(--gray-400);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tb-r{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end;position:relative;}
 .tb-clock{
   font-family:var(--mono);font-size:12px;color:var(--gray-500);
   background:var(--gray-50);border:1px solid var(--gray-200);
   padding:5px 12px;border-radius:var(--r);
+  display:inline-flex;align-items:center;
 }
+.tb-menu{
+  display:none;align-items:center;justify-content:center;
+  width:36px;height:36px;border-radius:var(--r);
+  border:1px solid var(--gray-200);background:var(--white);
+  color:var(--gray-600);cursor:pointer;transition:all .15s;
+}
+.tb-menu:hover{background:var(--gray-50);color:var(--gray-800);}
+.tb-menu svg{width:18px;height:18px;}
 .tb-icobtn{
   width:34px;height:34px;border-radius:var(--r);
   border:1px solid var(--gray-200);background:var(--white);
@@ -1339,6 +1522,20 @@ button,input,select{font-family:var(--f);}
   background:var(--error-500);border:1.5px solid var(--white);
 }
 
+.notif-pop{
+  position:absolute;right:0;top:44px;width:340px;max-width:90vw;
+  background:var(--white);border:1px solid var(--gray-200);
+  border-radius:12px;box-shadow:var(--md);z-index:30;overflow:hidden;
+}
+.notif-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 14px;border-bottom:1px solid var(--gray-100);
+  font-size:13px;font-weight:700;color:var(--gray-800);
+}
+.notif-count{font-size:11px;font-weight:700;color:var(--gray-600);}
+.notif-body{max-height:320px;overflow:auto;}
+.notif-empty{padding:18px;color:var(--gray-500);font-size:12px;text-align:center;}
+
 /* CONTENT */
 .content{flex:1;overflow-y:auto;padding:26px 28px;background:var(--gray-50);}
 
@@ -1352,6 +1549,7 @@ button,input,select{font-family:var(--f);}
 
 /* STAT CARDS */
 .sg{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:28px;}
+.sg.sg-user{grid-template-columns:repeat(3,1fr);}
 .sc{
   background:var(--white);border:1px solid var(--gray-200);
   border-radius:var(--rxl);padding:20px 22px;
@@ -1526,6 +1724,9 @@ tbody tr:hover td{background:var(--gray-25);}
 .mc0{font-family:var(--mono);font-size:12px;color:var(--success-600);font-weight:600;}
 .mcn{font-family:var(--mono);font-size:12px;color:var(--orange-600);font-weight:600;}
 
+.table-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;}
+.table-wrap table{min-width:720px;}
+
 /* PAGINATION */
 .pgn{
   padding:12px 20px;display:flex;align-items:center;justify-content:space-between;
@@ -1559,6 +1760,16 @@ tbody tr:hover td{background:var(--gray-25);}
   box-shadow:var(--xl);
   animation:si .18s ease;
 }
+.modal-archive{width:920px;max-width:95vw;}
+.modal-archive .table-wrap table{min-width:0;table-layout:fixed;}
+.modal-archive td{overflow:hidden;text-overflow:ellipsis;}
+.modal-archive td:nth-child(2){white-space:normal;}
+.modal-archive th:nth-child(1),.modal-archive td:nth-child(1){width:110px;}
+.modal-archive th:nth-child(2),.modal-archive td:nth-child(2){width:220px;}
+.modal-archive th:nth-child(3),.modal-archive td:nth-child(3){width:160px;}
+.modal-archive th:nth-child(4),.modal-archive td:nth-child(4){width:auto;}
+.modal-archive th:nth-child(5),.modal-archive td:nth-child(5){width:120px;}
+.modal-archive th:nth-child(6),.modal-archive td:nth-child(6){width:140px;}
 @keyframes si{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
 .mhd{
   padding:22px 24px 18px;border-bottom:1px solid var(--gray-200);
@@ -1666,9 +1877,12 @@ tbody tr:hover td{background:var(--gray-25);}
 
 .cg{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
 .ch{border:1px solid var(--gray-200);border-radius:var(--rxl);box-shadow:var(--sx)}
-.ch-h{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}
+.ch-h{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}
 .ch-t{font-size:14px;font-weight:800;color:var(--gray-900)}
 .ch-s{font-size:12px;color:var(--gray-500);margin-top:2px}
+.ch-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ch-meta{font-size:11px;color:var(--gray-400);font-family:var(--mono)}
+.report-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto}
 .ch-c{position:relative;width:100%;height:240px}
 .ch-c.sm{height:190px}
 .ch-mini{margin-top:10px;display:flex;gap:12px;flex-wrap:wrap}
@@ -1688,6 +1902,53 @@ tbody tr:hover td{background:var(--gray-25);}
 ::-webkit-scrollbar-thumb{background:var(--gray-200);border-radius:10px;}
 ::-webkit-scrollbar-thumb:hover{background:var(--gray-300);}
 @media(max-width:900px){.sg{grid-template-columns:repeat(2,1fr);}.qa{grid-template-columns:1fr 1fr;}.fg{grid-template-columns:repeat(2,1fr);}}
+@media(max-width:1024px){.content{padding:22px 20px}.bm-wrap{max-width:100%}}
+@media(max-width:860px){
+  .topbar{height:auto;padding:12px 16px;gap:10px;flex-wrap:wrap}
+  .tb-left{width:100%}
+  .tb-r{width:100%;justify-content:flex-start}
+  .tb-pg{font-size:15px}
+  .tb-crumb{font-size:11px}
+  .ph{flex-wrap:wrap;gap:12px}
+  .ph-actions{width:100%;justify-content:flex-start;flex-wrap:wrap}
+}
+@media(max-width:760px){
+  .shell{position:relative}
+  .sb{position:fixed;left:0;top:0;bottom:0;transform:translateX(-105%);transition:transform .2s;z-index:50;width:min(78vw,280px);box-shadow:0 20px 40px rgba(0,0,0,0.35);overflow-y:auto}
+  .shell.sb-open .sb{transform:translateX(0)}
+  .tb-menu{display:inline-flex}
+  .content{padding:18px 16px}
+  .tctrl{flex-direction:column;align-items:stretch}
+  .sw{max-width:100% !important}
+  .ts{width:100%}
+  .tact{flex-wrap:wrap;justify-content:flex-start}
+  .actcol{text-align:left}
+  .pgn{flex-direction:column;align-items:flex-start;gap:8px}
+  .pgb{flex-wrap:wrap}
+  .al-row{flex-wrap:wrap;align-items:flex-start}
+  .al-row .badge{margin-left:0}
+}
+@media(max-width:640px){
+  .sg{grid-template-columns:1fr}
+  .qa{grid-template-columns:1fr}
+  .sc{padding:16px}
+  .sc-val{font-size:28px}
+  .sc-ico{width:38px;height:38px}
+  .qa-item{padding:14px 16px;gap:12px}
+  .qa-ico{width:38px;height:38px}
+  .qa-lbl{font-size:12px}
+  .qa-sub{font-size:11px}
+  .tb-clock{width:100%;justify-content:center}
+}
+@media(max-width:520px){
+  .tb-pg{font-size:14px}
+  .tb-crumb{font-size:10px}
+  .tb-icobtn{width:32px;height:32px}
+  .tb-clock{font-size:11px;padding:5px 10px}
+  .sc-val{font-size:26px}
+  .sc-label{font-size:12px}
+  .table-wrap table{min-width:640px}
+}
  </style>
  </head>
  <body>
@@ -1696,7 +1957,7 @@ tbody tr:hover td{background:var(--gray-25);}
  </script>
  <div id="root"></div>
 <script type="text/babel">
- const {useState,useEffect}=React;
+ const {useState,useEffect,useMemo}=React;
  const DATA=(window.__ERMS_DATA__||{});
  const STS=['VALID','EXPIRING','EXPIRED','MISSING'];
  const RQS=Array.isArray(DATA.requirements)&&DATA.requirements.length?DATA.requirements:['SSS','PAG-IBIG','PhilHealth','License'];
@@ -1721,6 +1982,7 @@ const Ic={
   chU:()=><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m18 15-6-6-6 6"/></svg>,
   chL:()=><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 18-6-6 6-6"/></svg>,
   chR:()=><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 18 6-6-6-6"/></svg>,
+  menu:()=><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/></svg>,
 };
 
 function Badge({s}){
@@ -1751,6 +2013,91 @@ function fmtDate(iso){
   return new Intl.DateTimeFormat('en-US',{month:'short',day:'2-digit',year:'numeric'}).format(dt);
 }
 
+function guardInitials(name){
+  const parts=String(name||'').trim().split(/\s+/).filter(Boolean);
+  if(parts.length===0)return 'G';
+  const first=parts[0][0]||'';
+  const last=parts.length>1?parts[parts.length-1][0]||'':'';
+  return (first+last).toUpperCase()||'G';
+}
+
+function alertBadge(status){
+  const s=String(status||'').toUpperCase();
+  if(s==='EXPIRED')return 'EXPIRED';
+  if(s==='EXPIRING')return 'EXPIRING';
+  return 'EXPIRING';
+}
+
+function NotificationMenu({alerts}){
+  const [open,setOpen]=useState(false);
+  const count=alerts.length;
+
+  useEffect(()=>{
+    if(!open)return;
+    const onDoc=(e)=>{
+      const root=document.getElementById('notifMenu');
+      if(root && !root.contains(e.target)) setOpen(false);
+    };
+    const onKey=(e)=>{if(e.key==='Escape')setOpen(false);};
+    document.addEventListener('mousedown',onDoc);
+    document.addEventListener('keydown',onKey);
+    return ()=>{
+      document.removeEventListener('mousedown',onDoc);
+      document.removeEventListener('keydown',onKey);
+    };
+  },[open]);
+
+  return(
+    <div id="notifMenu">
+      <button
+        className="tb-icobtn"
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open?'true':'false'}
+        onClick={()=>setOpen(v=>!v)}
+        style={{position:'relative'}}
+      >
+        <Ic.bell/>{count>0&&<div className="tb-dot"/>}
+      </button>
+      {open&&(
+        <div className="notif-pop" role="dialog" aria-label="Notifications">
+          <div className="notif-head">
+            <div>Notifications</div>
+            <div className="notif-count">{count}</div>
+          </div>
+          <div className="notif-body">
+            {count===0
+              ?<div className="notif-empty">No notifications yet.</div>
+              :alerts.map((a,idx)=>{
+                const name=a.full_name||'Unknown Guard';
+                const meta=[a.agency||''].filter(Boolean).join(' · ');
+                const days=parseInt(a.days_until_expiry,10);
+                let dayLabel='';
+                if(!Number.isNaN(days)){
+                  if(days<0) dayLabel=`${Math.abs(days)} days overdue`;
+                  else if(days===0) dayLabel='Due today';
+                  else dayLabel=`${days} days left`;
+                }
+                const metaLine=[`Expiry: ${fmtDate(a.expiry_date)}`,dayLabel].filter(Boolean).join(' · ');
+                return(
+                  <div className="al-row" key={`${a.guard_id||'g'}-${idx}`}>
+                    <div className="al-av">{guardInitials(name)}</div>
+                    <div className="al-info">
+                      <div className="al-name">{name}</div>
+                      {meta&&<div className="al-meta">{meta}</div>}
+                      <div className="al-meta">{metaLine}</div>
+                    </div>
+                    <Badge s={alertBadge(a.alert_status)}/>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GuardModal({g,close,onUpdated}){
   if(!g)return null;
   const [edit,setEdit]=useState(false);
@@ -1767,7 +2114,58 @@ function GuardModal({g,close,onUpdated}){
   const showT=m=>{setToast(m);setTimeout(()=>setToast(''),3000);};
   const name=`${g.last}, ${g.first} ${g.mid} ${g.suffix}`.trim();
   const init=(g.first[0]||'')+(g.last[0]||'');
+  const displayGuardNo = (g.displayNo !== undefined && g.displayNo !== null && String(g.displayNo) !== '')
+    ? String(g.displayNo)
+    : '';
   const u=k=>e=>setF(p=>({...p,[k]:e.target.value}));
+
+  const calcAgeFromISO=(iso)=>{
+    const s=String(iso||'').slice(0,10);
+    if(!s)return null;
+    const d=new Date(s+'T00:00:00');
+    if(Number.isNaN(d.getTime()))return null;
+    const now=new Date();
+    let a=now.getFullYear()-d.getFullYear();
+    const m=now.getMonth()-d.getMonth();
+    if(m<0||(m===0&&now.getDate()<d.getDate()))a--;
+    return Math.max(0,a);
+  };
+  const displayAge=calcAgeFromISO(g.bday);
+
+  const deriveComplianceFromReqs=(list)=>{
+    const reqList=Array.isArray(list)?list:[];
+    const missingReqNames=[];
+    let licenseExpiry='';
+    const today=new Date();
+    today.setHours(0,0,0,0);
+    const sixMonths=new Date(today);
+    sixMonths.setMonth(sixMonths.getMonth()+6);
+    let expired=false;
+    let expiring=false;
+
+    for(const rt of reqList){
+      const v=(rt&&rt.value)||{};
+      const hasFile=!!v.document_path;
+      if(!hasFile&&rt&&rt.name)missingReqNames.push(rt.name);
+
+      if(rt&&rt.code==='SECURITY_LICENSE'){
+        const ex=v.expiry_date?String(v.expiry_date).slice(0,10):'';
+        if(ex)licenseExpiry=ex;
+        const dt=ex?new Date(ex+'T00:00:00'):null;
+        if(dt&&!Number.isNaN(dt.getTime())){
+          if(dt<today)expired=true;
+          else if(dt<=sixMonths)expiring=true;
+        }
+      }
+    }
+
+    let status='VALID';
+    if(expired)status='EXPIRED';
+    else if(expiring)status='EXPIRING';
+    else if(missingReqNames.length>0)status='MISSING';
+
+    return {missing:missingReqNames.length,missingReqs:missingReqNames,expDate:licenseExpiry,status};
+  };
 
   const loadReqs=async()=>{
     if(DATA.company!=='jubecer')return;
@@ -1775,7 +2173,19 @@ function GuardModal({g,close,onUpdated}){
     fd.append('api','get_guard_requirements');
     fd.append('guard_id',String(g.id));
     const j=await apiPost(fd);
-    setReqs(Array.isArray(j.requirements)?j.requirements:[]);
+    const list=Array.isArray(j.requirements)?j.requirements:[];
+    setReqs(list);
+
+    const derived=deriveComplianceFromReqs(list);
+    if(typeof onUpdated==='function'){
+      const curMissingReqs=Array.isArray(g.missingReqs)?g.missingReqs:[];
+      const changed=
+        derived.status!==g.status||
+        derived.missing!==g.missing||
+        derived.expDate!==g.expDate||
+        derived.missingReqs.join('\u0000')!==curMissingReqs.join('\u0000');
+      if(changed)onUpdated({...g,...derived});
+    }
   };
 
   useEffect(()=>{
@@ -1852,7 +2262,11 @@ function GuardModal({g,close,onUpdated}){
             <div className="gpa">{init}</div>
             <div style={{flex:1}}>
               <div className="gpn">{name}</div>
-              <div className="gpm">{g.no} · {g.agency}</div>
+              <div className="gpm">
+                {(displayGuardNo?`#${displayGuardNo}`:'')}
+                {(displayGuardNo&&g.agency)?' · ':''}
+                {g.agency||''}
+              </div>
             </div>
             <Badge s={g.status}/>
           </div>
@@ -1862,9 +2276,9 @@ function GuardModal({g,close,onUpdated}){
               ?(
                 <div className="dg">
                   <div className="di"><div className="dk">Full Name</div><div className="dv">{name}</div></div>
-                  <div className="di"><div className="dk">Guard No.</div><div className="dv" style={{fontFamily:'var(--mono)',fontSize:12}}>{g.no}</div></div>
+                  <div className="di"><div className="dk">Guard No.</div><div className="dv" style={{fontFamily:'var(--mono)',fontSize:12}}>{displayGuardNo||'—'}</div></div>
                   <div className="di"><div className="dk">Date of Birth</div><div className="dv">{g.bday}</div></div>
-                  <div className="di"><div className="dk">Age</div><div className="dv">{g.age} years old</div></div>
+                  <div className="di"><div className="dk">Age</div><div className="dv">{displayAge===null?(g.age>0?g.age:'—'):displayAge} years old</div></div>
                   <div className="di"><div className="dk">Contact</div><div className="dv">{g.contact}</div></div>
                   <div className="di"><div className="dk">Agency</div><div className="dv">{g.agency}</div></div>
                   <div className="di"><div className="dk">Deploy Date</div><div className="dv" style={{fontFamily:'var(--mono)',fontSize:12}}>{fmtDate(g.deployed)}</div></div>
@@ -2007,6 +2421,14 @@ function Reports(){
   const [win,setWin]=useState('180');
   const [q,setQ]=useState('');
 
+  const fmtCount=(n)=>new Intl.NumberFormat('en-US').format(Number(n)||0);
+  const fmtMonth=(key)=>{
+    if(!key)return '';
+    const dt=new Date(`${key}-01T00:00:00`);
+    if(Number.isNaN(dt.getTime()))return key;
+    return new Intl.DateTimeFormat('en-US',{month:'short',year:'2-digit'}).format(dt);
+  };
+
   const fmtDate=(iso)=>{
     if(!iso)return '—';
     const dt=new Date(String(iso).slice(0,10)+'T00:00:00');
@@ -2034,105 +2456,52 @@ function Reports(){
     return 'ok';
   };
 
-  const csvEscape=(v)=>{
-    const s=String(v??'');
-    if(/[\n",]/.test(s))return '"'+s.replace(/"/g,'""')+'"';
-    return s;
-  };
-  const download=(name,rows)=>{
-    const blob=new Blob([rows.join('\n')],{type:'text/csv;charset=utf-8'});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');
-    a.href=url;
-    a.download=name;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  };
-
-  const expCsv=()=>{
-    const head=['Guard No','Name','Agency','Expiry Date','Days'];
-    const lines=[head.map(csvEscape).join(',')];
-    exp.forEach(r=>{
-      const d=daysUntil(r.expiry_date);
-      lines.push([
-        r.guard_no,
-        r.full_name,
-        r.agency,
-        String(r.expiry_date||''),
-        expLabel(d)
-      ].map(csvEscape).join(','));
-    });
-    download('jubecer-license-expiry-report.csv',lines);
-  };
-  const missCsv=()=>{
-    const head=['Guard No','Name','Agency','Missing Requirements'];
-    const lines=[head.map(csvEscape).join(',')];
-    miss.forEach(r=>{
-      const m=Array.isArray(r.missingReqs)?r.missingReqs.join(' | '):'';
-      lines.push([r.no,r.name,r.agency,m].map(csvEscape).join(','));
-    });
-    download('jubecer-missing-requirements-report.csv',lines);
-  };
-  const agCsv=()=>{
-    const head=['Agency','Total Guards','With Missing','With Expired License','With Expiring License'];
-    const lines=[head.map(csvEscape).join(',')];
-    ag.forEach(r=>{
-      lines.push([
-        r.agency,
-        r.total_guards,
-        r.guards_with_missing,
-        r.guards_with_expired_license,
-        r.guards_with_expiring_license
-      ].map(csvEscape).join(','));
-    });
-    download('jubecer-agency-summary-report.csv',lines);
-  };
-
   const cssVar=(name)=>{
     if(typeof window==='undefined')return '';
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   };
 
-  const ApexChart=({type,options,series,heightClass})=>{
-    const ref=React.useRef(null);
-    useEffect(()=>{
-      if(!ref.current||!window.ApexCharts)return;
-      const chart=new window.ApexCharts(ref.current,{
-        chart:{
-          type,
-          height:'100%',
-          toolbar:{show:false},
-          zoom:{enabled:false},
-          fontFamily:cssVar('--f')||'Plus Jakarta Sans, sans-serif',
-          foreColor:cssVar('--gray-500')||'#667085',
-        },
-        grid:{
-          borderColor:cssVar('--gray-200')||'#E4E7EC',
-          strokeDashArray:3,
-          padding:{left:8,right:10,top:6,bottom:6},
-        },
-        dataLabels:{enabled:false},
-        stroke:{curve:'smooth',width:3},
-        markers:{size:0},
-        tooltip:{
-          theme:'dark',
-          style:{fontSize:'12px',fontFamily:cssVar('--mono')||'monospace'},
-        },
-        legend:{show:false},
-        ...options,
-        series,
-      });
-      chart.render();
-      return()=>{try{chart.destroy();}catch(e){}};
-    },[type,JSON.stringify(options||{}),JSON.stringify(series||[])]);
+  const palette={
+    navy:cssVar('--navy-600')||'#444CE7',
+    navyDark:cssVar('--navy-700')||'#3538CD',
+    navyLight:cssVar('--navy-200')||'#C7D7FD',
+    success:cssVar('--success-500')||'#12B76A',
+    successDark:cssVar('--success-700')||'#027A48',
+    warning:cssVar('--warning-500')||'#F79009',
+    orange:cssVar('--orange-500')||'#EF6820',
+    error:cssVar('--error-600')||'#D92D20',
+    errorDark:cssVar('--error-700')||'#B42318',
+    grid:cssVar('--gray-200')||'#E4E7EC',
+    gray:cssVar('--gray-500')||'#667085',
+    text:cssVar('--gray-700')||'#344054',
+    white:cssVar('--white')||'#ffffff',
+  };
 
-    return(
-      <div className={`ch-c ${heightClass||''}`.trim()}>
-        <div ref={ref} style={{height:'100%'}}></div>
-      </div>
-    );
+  // EChart wrapper for consistent theming and responsive resize.
+  const EChart=({option,heightClass})=>{
+    const ref=React.useRef(null);
+    const chartRef=React.useRef(null);
+
+    useEffect(()=>{
+      if(!ref.current||!window.echarts)return;
+      chartRef.current=window.echarts.init(ref.current,null,{renderer:'canvas'});
+      const onResize=()=>{if(chartRef.current)chartRef.current.resize();};
+      window.addEventListener('resize',onResize);
+      return()=>{
+        window.removeEventListener('resize',onResize);
+        if(chartRef.current){
+          chartRef.current.dispose();
+          chartRef.current=null;
+        }
+      };
+    },[]);
+
+    useEffect(()=>{
+      if(!chartRef.current||!option)return;
+      chartRef.current.setOption(option,true);
+    },[option]);
+
+    return <div className={`ch-c ${heightClass||''}`.trim()} ref={ref}></div>;
   };
 
   const s=(DATA.summary||{});
@@ -2141,13 +2510,14 @@ function Reports(){
   const expiring=s.guards_with_expiring_license||0;
   const expired=s.guards_with_expired_license||0;
   const valid=Math.max(0,tot-(missing+expiring+expired));
+  const sum=valid+missing+expiring+expired;
 
   const expBuckets=[
-    {k:'Expired',v:exp.filter(r=>(Number(r.days_until_expiry)||0)<0).length,c:'var(--error)'},
-    {k:'0-30',v:exp.filter(r=>{const d=Number(r.days_until_expiry);return d>=0&&d<=30;}).length,c:'var(--warning)'},
-    {k:'31-90',v:exp.filter(r=>{const d=Number(r.days_until_expiry);return d>30&&d<=90;}).length,c:'var(--orange)'},
-    {k:'91-180',v:exp.filter(r=>{const d=Number(r.days_until_expiry);return d>90&&d<=180;}).length,c:'var(--navy-500)'},
-    {k:'181+',v:exp.filter(r=>{const d=Number(r.days_until_expiry);return d>180;}).length,c:'var(--navy-700)'},
+    {k:'Expired',v:exp.filter(r=>(Number(r.days_until_expiry)||0)<0).length,c:palette.error},
+    {k:'0-30',v:exp.filter(r=>{const d=Number(r.days_until_expiry);return d>=0&&d<=30;}).length,c:palette.warning},
+    {k:'31-90',v:exp.filter(r=>{const d=Number(r.days_until_expiry);return d>30&&d<=90;}).length,c:palette.orange},
+    {k:'91-180',v:exp.filter(r=>{const d=Number(r.days_until_expiry);return d>90&&d<=180;}).length,c:palette.navy},
+    {k:'181+',v:exp.filter(r=>{const d=Number(r.days_until_expiry);return d>180;}).length,c:palette.navyDark},
   ];
 
   const agencies=['ALL',...Array.from(new Set([
@@ -2190,16 +2560,16 @@ function Reports(){
     .sort((a,b)=>(b.missingReqs||[]).length-(a.missingReqs||[]).length)
     .slice(0,25);
 
-  const topAg=ag.slice(0,6).map(r=>({
-    k:String(r.agency||'—').slice(0,6),
+  const topAg=ag.slice(0,8).map(r=>({
+    k:String(r.agency||'—'),
     v:Number(r.total_guards)||0,
-    c:'var(--navy-600)'
+    c:palette.navy,
   }));
 
   const missDist=[
-    {k:'1',v:miss.filter(r=>(r.missingReqs||[]).length===1).length,c:'var(--warning)'},
-    {k:'2',v:miss.filter(r=>(r.missingReqs||[]).length===2).length,c:'var(--orange)'},
-    {k:'3+',v:miss.filter(r=>(r.missingReqs||[]).length>=3).length,c:'var(--error)'},
+    {k:'1',v:miss.filter(r=>(r.missingReqs||[]).length===1).length,c:palette.warning},
+    {k:'2',v:miss.filter(r=>(r.missingReqs||[]).length===2).length,c:palette.orange},
+    {k:'3+',v:miss.filter(r=>(r.missingReqs||[]).length>=3).length,c:palette.error},
   ];
 
   const expByMonth=(()=>{
@@ -2212,8 +2582,192 @@ function Reports(){
     });
     const keys=Object.keys(map).sort();
     const tail=keys.slice(Math.max(0,keys.length-8));
-    return tail.map(k=>({key:k,label:k.slice(5),v:map[k]||0}));
+    return tail.map(k=>({key:k,label:fmtMonth(k),v:map[k]||0}));
   })();
+
+  const axisLabelStyle={
+    fontFamily:cssVar('--mono')||'monospace',
+    fontSize:11,
+    color:palette.gray,
+  };
+
+  const gridBase={left:36,right:16,top:20,bottom:24,containLabel:true};
+
+  const donutOption=useMemo(()=>({
+    textStyle:{fontFamily:cssVar('--f')||'Plus Jakarta Sans, sans-serif',color:palette.text},
+    tooltip:{
+      trigger:'item',
+      confine:true,
+      formatter:(p)=>`${p.name}: ${fmtCount(p.value)} (${Math.round(p.percent)}%)`,
+    },
+    series:[{
+      type:'pie',
+      radius:['58%','76%'],
+      center:['50%','45%'],
+      avoidLabelOverlap:true,
+      label:{
+        show:true,
+        formatter:(p)=>`${p.name}\n${Math.round(p.percent)}%`,
+        fontSize:11,
+        color:palette.text,
+      },
+      labelLine:{length:10,length2:10},
+      itemStyle:{borderColor:palette.white,borderWidth:2},
+      data:[
+        {value:valid,name:'Valid',itemStyle:{color:palette.success}},
+        {value:missing,name:'Missing',itemStyle:{color:palette.error}},
+        {value:expiring,name:'Expiring',itemStyle:{color:palette.warning}},
+        {value:expired,name:'Expired',itemStyle:{color:palette.errorDark}},
+      ],
+    }],
+  }),[valid,missing,expiring,expired,palette.success,palette.error,palette.warning,palette.errorDark,palette.white,palette.text]);
+
+  const expWindowOption=useMemo(()=>({
+    textStyle:{fontFamily:cssVar('--f')||'Plus Jakarta Sans, sans-serif',color:palette.text},
+    grid:gridBase,
+    tooltip:{
+      trigger:'axis',
+      confine:true,
+      axisPointer:{type:'shadow'},
+      formatter:(params)=>{
+        const p=params[0];
+        return `${p.axisValue}: ${fmtCount(p.value)} guards`;
+      },
+    },
+    xAxis:{
+      type:'category',
+      data:expBuckets.map(x=>x.k),
+      axisLine:{show:false},
+      axisTick:{show:false},
+      axisLabel:axisLabelStyle,
+    },
+    yAxis:{
+      type:'value',
+      axisLabel:{...axisLabelStyle,formatter:(v)=>fmtCount(v)},
+      splitLine:{lineStyle:{color:palette.grid}},
+    },
+    series:[{
+      type:'bar',
+      data:expBuckets.map(x=>({value:x.v,itemStyle:{color:x.c}})),
+      barWidth:'46%',
+      label:{show:true,position:'top',formatter:(p)=>fmtCount(p.value)},
+      itemStyle:{borderRadius:[10,10,0,0]},
+    }],
+  }),[expBuckets,palette.text,palette.grid,axisLabelStyle]);
+
+  const topAgOption=useMemo(()=>({
+    textStyle:{fontFamily:cssVar('--f')||'Plus Jakarta Sans, sans-serif',color:palette.text},
+    grid:{left:120,right:16,top:16,bottom:16,containLabel:true},
+    tooltip:{
+      trigger:'axis',
+      confine:true,
+      axisPointer:{type:'shadow'},
+      formatter:(params)=>{
+        const p=params[0];
+        return `${p.name}: ${fmtCount(p.value)} guards`;
+      },
+    },
+    xAxis:{
+      type:'value',
+      axisLabel:{...axisLabelStyle,formatter:(v)=>fmtCount(v)},
+      splitLine:{lineStyle:{color:palette.grid}},
+      axisLine:{show:false},
+      axisTick:{show:false},
+    },
+    yAxis:{
+      type:'category',
+      data:topAg.map(x=>x.k),
+      axisLabel:{
+        ...axisLabelStyle,
+        formatter:(v)=>String(v).length>20?String(v).slice(0,20)+'…':String(v),
+      },
+      axisLine:{show:false},
+      axisTick:{show:false},
+    },
+    series:[{
+      type:'bar',
+      data:topAg.map(x=>x.v),
+      barWidth:'58%',
+      itemStyle:{color:palette.navy,borderRadius:[0,8,8,0]},
+      label:{show:true,position:'right',formatter:(p)=>fmtCount(p.value)},
+    }],
+  }),[topAg,palette.navy,palette.text,palette.grid,axisLabelStyle]);
+
+  const missOption=useMemo(()=>({
+    textStyle:{fontFamily:cssVar('--f')||'Plus Jakarta Sans, sans-serif',color:palette.text},
+    grid:gridBase,
+    tooltip:{
+      trigger:'axis',
+      confine:true,
+      axisPointer:{type:'shadow'},
+      formatter:(params)=>{
+        const p=params[0];
+        return `${p.axisValue}: ${fmtCount(p.value)} guards`;
+      },
+    },
+    xAxis:{
+      type:'category',
+      data:missDist.map(x=>x.k),
+      axisLine:{show:false},
+      axisTick:{show:false},
+      axisLabel:axisLabelStyle,
+    },
+    yAxis:{
+      type:'value',
+      axisLabel:{...axisLabelStyle,formatter:(v)=>fmtCount(v)},
+      splitLine:{lineStyle:{color:palette.grid}},
+    },
+    series:[{
+      type:'bar',
+      data:missDist.map(x=>({value:x.v,itemStyle:{color:x.c}})),
+      barWidth:'46%',
+      label:{show:true,position:'top',formatter:(p)=>fmtCount(p.value)},
+      itemStyle:{borderRadius:[10,10,0,0]},
+    }],
+  }),[missDist,palette.text,palette.grid,axisLabelStyle]);
+
+  const areaFill=(typeof window!=='undefined'&&window.echarts)
+    ?new window.echarts.graphic.LinearGradient(0,0,0,1,[
+      {offset:0,color:palette.navyLight},
+      {offset:1,color:'rgba(255,255,255,0)'}
+    ])
+    :palette.navyLight;
+
+  const expTrendOption=useMemo(()=>({
+    textStyle:{fontFamily:cssVar('--f')||'Plus Jakarta Sans, sans-serif',color:palette.text},
+    grid:gridBase,
+    tooltip:{
+      trigger:'axis',
+      confine:true,
+      formatter:(params)=>{
+        const p=params[0];
+        return `${p.axisValue}: ${fmtCount(p.value)} expiries`;
+      },
+    },
+    xAxis:{
+      type:'category',
+      boundaryGap:false,
+      data:expByMonth.map(p=>p.label),
+      axisLine:{show:false},
+      axisTick:{show:false},
+      axisLabel:axisLabelStyle,
+    },
+    yAxis:{
+      type:'value',
+      axisLabel:{...axisLabelStyle,formatter:(v)=>fmtCount(v)},
+      splitLine:{lineStyle:{color:palette.grid}},
+    },
+    series:[{
+      type:'line',
+      data:expByMonth.map(p=>p.v),
+      smooth:true,
+      symbol:'circle',
+      symbolSize:6,
+      lineStyle:{width:3,color:palette.navy},
+      itemStyle:{color:palette.navy},
+      areaStyle:{color:areaFill},
+    }],
+  }),[expByMonth,areaFill,palette.navy,palette.text,palette.grid,axisLabelStyle]);
 
   return(
     <div className="bm-wrap">
@@ -2290,17 +2844,7 @@ function Reports(){
                 <div className="ch-s">Valid vs alerts</div>
               </div>
             </div>
-            <ApexChart
-              type="donut"
-              heightClass="sm"
-              series={[valid,missing,expiring,expired]}
-              options={{
-                labels:['Valid','Missing','Expiring','Expired'],
-                colors:[cssVar('--success-500'),cssVar('--error-500'),cssVar('--warning-500'),cssVar('--error-700')],
-                plotOptions:{pie:{donut:{size:'62%'}}},
-                stroke:{width:4,colors:[cssVar('--white')||'#fff']},
-              }}
-            />
+            <EChart option={donutOption} heightClass="sm" />
             <div className="chips">
               <span className="chip ok">Valid <b>{valid}</b></span>
               <span className="chip bad">Missing <b>{missing}</b></span>
@@ -2316,24 +2860,7 @@ function Reports(){
                 <div className="ch-s">Distribution by time-to-expiry</div>
               </div>
             </div>
-            <ApexChart
-              type="bar"
-              series={[{name:'Guards',data:expBuckets.map(x=>x.v)}]}
-              options={{
-                colors:expBuckets.map(x=>x.c),
-                xaxis:{
-                  categories:expBuckets.map(x=>x.k),
-                  labels:{style:{fontFamily:cssVar('--mono')||'monospace',fontSize:'11px'}},
-                  axisBorder:{show:false},
-                  axisTicks:{show:false},
-                },
-                yaxis:{
-                  labels:{style:{fontFamily:cssVar('--mono')||'monospace',fontSize:'11px'}},
-                },
-                plotOptions:{bar:{borderRadius:10,columnWidth:'55%',distributed:true}},
-                fill:{opacity:1},
-              }}
-            />
+            <EChart option={expWindowOption} />
           </div>
 
           <div className="card ch" style={{padding:18}}>
@@ -2343,24 +2870,7 @@ function Reports(){
                 <div className="ch-s">By total guards</div>
               </div>
             </div>
-            <ApexChart
-              type="bar"
-              series={[{name:'Guards',data:topAg.map(x=>x.v)}]}
-              options={{
-                colors:[cssVar('--navy-600')||'#444CE7'],
-                xaxis:{
-                  categories:topAg.map(x=>x.k),
-                  labels:{style:{fontFamily:cssVar('--mono')||'monospace',fontSize:'11px'}},
-                  axisBorder:{show:false},
-                  axisTicks:{show:false},
-                },
-                yaxis:{
-                  labels:{style:{fontFamily:cssVar('--mono')||'monospace',fontSize:'11px'}},
-                },
-                plotOptions:{bar:{borderRadius:10,columnWidth:'55%'}},
-                fill:{opacity:0.95},
-              }}
-            />
+            <EChart option={topAgOption} />
           </div>
 
           <div className="card ch" style={{padding:18}}>
@@ -2370,24 +2880,7 @@ function Reports(){
                 <div className="ch-s">Guards grouped by missing count</div>
               </div>
             </div>
-            <ApexChart
-              type="bar"
-              series={[{name:'Guards',data:missDist.map(x=>x.v)}]}
-              options={{
-                colors:missDist.map(x=>x.c),
-                xaxis:{
-                  categories:missDist.map(x=>x.k),
-                  labels:{style:{fontFamily:cssVar('--mono')||'monospace',fontSize:'11px'}},
-                  axisBorder:{show:false},
-                  axisTicks:{show:false},
-                },
-                yaxis:{
-                  labels:{style:{fontFamily:cssVar('--mono')||'monospace',fontSize:'11px'}},
-                },
-                plotOptions:{bar:{borderRadius:10,columnWidth:'55%',distributed:true}},
-                fill:{opacity:1},
-              }}
-            />
+            <EChart option={missOption} />
           </div>
 
           <div className="card ch" style={{padding:18}}>
@@ -2400,27 +2893,7 @@ function Reports(){
             {expByMonth.length>1
               ?(
                 <>
-                  <ApexChart
-                    type="area"
-                    heightClass="sm"
-                    series={[{name:'Expiries',data:expByMonth.map(p=>p.v)}]}
-                    options={{
-                      colors:[cssVar('--navy-600')||'#444CE7'],
-                      xaxis:{
-                        categories:expByMonth.map(p=>p.label),
-                        labels:{style:{fontFamily:cssVar('--mono')||'monospace',fontSize:'11px'}},
-                        axisBorder:{show:false},
-                        axisTicks:{show:false},
-                      },
-                      yaxis:{
-                        labels:{style:{fontFamily:cssVar('--mono')||'monospace',fontSize:'11px'}},
-                      },
-                      fill:{
-                        type:'gradient',
-                        gradient:{shadeIntensity:1,opacityFrom:0.22,opacityTo:0.02,stops:[0,90,100]}
-                      },
-                    }}
-                  />
+                  <EChart option={expTrendOption} heightClass="sm" />
                   <div className="ch-mini">
                     {expByMonth.map(p=>(
                       <div key={p.key} className="ch-mi">{p.label}: <b style={{fontFamily:'var(--mono)'}}>{p.v}</b></div>
@@ -2674,8 +3147,24 @@ function DeleteUserModal({user,onClose,onDeleted}){
   );
 }
 
-function ArchiveModal({users,onClose,onActivate}){
+function ArchiveModal({users,onClose,onActivate,kind='employees'}){
   const [q,setQ]=useState('');
+  const idLabel=kind==='employees'?'Employee ID':'User ID';
+  const sub=kind==='employees'
+    ?'Employees deactivated / no longer in the company'
+    :'User accounts deactivated / cannot log in';
+  const ph=kind==='employees'
+    ?'Search employee id, name, role, or gmail…'
+    :'Search user id, name, role, or gmail…';
+
+  const roleLabel=(r)=>{
+    const x=String(r||'');
+    if(x==='security_operation')return 'Security Operation';
+    if(x==='employee')return 'Employee';
+    if(x==='admin')return 'Administrator';
+    return x||'—';
+  };
+
   const lq=q.trim().toLowerCase();
   const fil=users
     .filter(u=>!u.is_active)
@@ -2687,11 +3176,11 @@ function ArchiveModal({users,onClose,onActivate}){
 
   return(
     <div className="overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div className="modal">
+      <div className="modal modal-archive">
         <div className="mhd">
           <div>
             <div className="mt">Archive</div>
-            <div className="ms">Employees deactivated / no longer in the company</div>
+            <div className="ms">{sub}</div>
           </div>
           <button className="mc" onClick={onClose}><Ic.x/></button>
         </div>
@@ -2699,44 +3188,46 @@ function ArchiveModal({users,onClose,onActivate}){
           <div className="tctrl" style={{padding:0,marginBottom:12}}>
             <div className="sw" style={{maxWidth:360}}>
               <Ic.search/>
-              <input className="si" value={q} onChange={e=>setQ(e.target.value)} placeholder="Search user id, name, role, or gmail…"/>
+              <input className="si" value={q} onChange={e=>setQ(e.target.value)} placeholder={ph}/>
             </div>
           </div>
 
-          <table>
-            <thead>
-              <tr>
-                <th>User ID</th>
-                <th>Name</th>
-                <th>Role</th>
-                <th>Gmail</th>
-                <th>Deactivated</th>
-                <th className="actcol">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {fil.length===0
-                ?<tr><td colSpan="6" style={{padding:18,color:'var(--gray-500)'}}>No archived employees.</td></tr>
-                :fil.map(u=>{
-                  const dt=(u.deactivated_at||'').slice(0,10);
-                  return(
-                    <tr key={u.id}>
-                      <td><span className="gno">{u.employee_id||'—'}</span></td>
-                      <td>{u.full_name||'—'}</td>
-                      <td style={{fontSize:12,color:'var(--gray-600)'}}>{u.role||'—'}</td>
-                      <td style={{fontSize:12,color:'var(--gray-600)'}}>{u.email||'—'}</td>
-                      <td style={{fontFamily:'var(--mono)',fontSize:12,color:'var(--gray-600)'}}>{dt||'—'}</td>
-                      <td className="actcol">
-                        <div className="tact">
-                          <button className="btn btn-op sm" onClick={()=>onActivate(u)}>Activate</button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              }
-            </tbody>
-          </table>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>{idLabel}</th>
+                  <th>Name</th>
+                  <th>Role</th>
+                  <th>Gmail</th>
+                  <th>Deactivated</th>
+                  <th className="actcol">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fil.length===0
+                  ?<tr><td colSpan="6" style={{padding:18,color:'var(--gray-500)'}}>No archived employees.</td></tr>
+                  :fil.map(u=>{
+                    const dt=(u.deactivated_at||'').slice(0,10);
+                    return(
+                      <tr key={u.id}>
+                        <td><span className="gno">{u.employee_id||'—'}</span></td>
+                        <td>{u.full_name||'—'}</td>
+                        <td style={{fontSize:12,color:'var(--gray-600)'}}>{roleLabel(u.role)}</td>
+                        <td style={{fontSize:12,color:'var(--gray-600)'}}>{u.email||'—'}</td>
+                        <td style={{fontFamily:'var(--mono)',fontSize:12,color:'var(--gray-600)'}}>{dt||'—'}</td>
+                        <td className="actcol">
+                          <div className="tact">
+                            <button className="btn btn-op sm" onClick={()=>onActivate(u)}>Activate</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                }
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -2768,47 +3259,47 @@ function UserManagement(){
   const [acctModal,setAcctModal]=useState(null);
   const [delModal,setDelModal]=useState(null);
   const [arch,setArch]=useState(false);
+  const [archRows,setArchRows]=useState([]);
 
-  const loadEmployees=async()=>{
-    if(!isAdmin)return;
+  const mapRow=(r)=>({
+    id:Number(r.id),
+    employee_id:String(r.employee_id||''),
+    full_name:String(r.full_name||''),
+    email:String(r.email||''),
+    starting_date:String(r.starting_date||''),
+    role:String(r.role||''),
+    is_active:Number(r.is_active||0)===1,
+    deactivated_at:String(r.deactivated_at||''),
+    created_at:String(r.created_at||''),
+    updated_at:String(r.updated_at||''),
+  });
+
+  const fetchEmployees=async(statusFilter='active')=>{
+    if(!isAdmin)return [];
     const fd=new FormData();
     fd.append('api','list_employees');
-    const j=await apiPost(fd);
+    const urlParams=statusFilter!=='all'?`?status=${statusFilter}`:'';
+    const j=await apiPost(fd,urlParams);
     const arr=Array.isArray(j.employees)?j.employees:[];
-    setEmployees(arr.map(e=>({
-      id:Number(e.id),
-      employee_id:String(e.employee_id||''),
-      full_name:String(e.full_name||''),
-      email:String(e.email||''),
-      starting_date:String(e.starting_date||''),
-      role:String(e.role||''),
-      is_active:Number(e.is_active||0)===1,
-      deactivated_at:String(e.deactivated_at||''),
-      created_at:String(e.created_at||''),
-      updated_at:String(e.updated_at||''),
-    })));
+    return arr.map(mapRow);
   };
 
-  const loadUsers=async(statusFilter='active')=>{
-    if(!isAdmin)return;
+  const fetchUsers=async(statusFilter='active')=>{
+    if(!isAdmin)return [];
     const fd=new FormData();
     fd.append('api','list_users');
-    // Add status as query parameter
-    const urlParams = statusFilter !== 'all' ? `?status=${statusFilter}` : '';
-    const j=await apiPost(fd, urlParams);
+    const urlParams=statusFilter!=='all'?`?status=${statusFilter}`:'';
+    const j=await apiPost(fd,urlParams);
     const arr=Array.isArray(j.users)?j.users:[];
-    setUsers(arr.map(u=>({
-      id:Number(u.id),
-      employee_id:String(u.employee_id||''),
-      full_name:String(u.full_name||''),
-      email:String(u.email||''),
-      starting_date:String(u.starting_date||''),
-      role:String(u.role||''),
-      is_active:Number(u.is_active||0)===1,
-      deactivated_at:String(u.deactivated_at||''),
-      created_at:String(u.created_at||''),
-      updated_at:String(u.updated_at||''),
-    })));
+    return arr.map(mapRow);
+  };
+
+  const loadEmployees=async()=>{
+    setEmployees(await fetchEmployees('active'));
+  };
+
+  const loadUsers=async()=>{
+    setUsers(await fetchUsers('active'));
   };
 
   const loadAll=async()=>{
@@ -2817,7 +3308,7 @@ function UserManagement(){
     setErr('');
     try{
       await loadEmployees();
-      await loadUsers('active');
+      await loadUsers();
     }catch(e){
       setErr(String(e&&e.message?e.message:e));
     }finally{setLoading(false);}
@@ -2863,13 +3354,10 @@ function UserManagement(){
       fd.append('api','sync_users_from_employees');
       const j=await apiPost(fd);
       if(j&&j.ok){
-        alert(`Synced ${j.updated||0} user(s) with employee data.`);
         await loadUsers();
-      }else{
-        alert(j&&j.error?j.error:'Sync failed.');
       }
     }catch(err){
-      alert(String(err&&err.message?err.message:err));
+      console.warn('Sync users failed:', err);
     }
   };
 
@@ -3021,13 +3509,16 @@ function UserManagement(){
     <div className="bm-wrap">
       {arch&&(
         <ArchiveModal
-          users={tab==='employees'?employees:users}
+          users={archRows}
+          kind={tab}
           onClose={()=>setArch(false)}
           onActivate={async(x)=>{
             if(tab==='employees'){
               await toggleEmployee({...x,is_active:false});
+              try{setArchRows(await fetchEmployees('inactive'));}catch(e){}
             }else{
               await toggleUser({...x,is_active:false});
+              try{setArchRows(await fetchUsers('inactive'));}catch(e){}
             }
           }}
         />
@@ -3057,7 +3548,7 @@ function UserManagement(){
         />
       )}
 
-      <div className="sg" style={{marginBottom:18}}>
+      <div className="sg sg-user" style={{marginBottom:18}}>
         {[
           {l:tab==='employees'?'Total Employees':'Total Accounts',v:total,i:'b',icon:<Ic.users/>,sub:tab==='employees'?'All employees (master list)':'All login accounts',pct:100},
           {l:'Active',v:activeCount,i:'g',icon:<Ic.check/>,sub:tab==='employees'?'Still in company':'Can log in',pct:total>0?Math.round(activeCount/total*100):0},
@@ -3111,10 +3602,13 @@ function UserManagement(){
                   :<button className="btn btn-p sm" onClick={()=>setAcctModal({mode:'add'})} disabled={employeesWithoutAccount.length===0} title={employeesWithoutAccount.length===0?'No active employees without accounts':''}><Ic.plus/>Create Account</button>
                 }
                 <button className="btn btn-s sm" onClick={async()=>{
-                  if(tab==='accounts'){
-                    await loadUsers('inactive');
+                  try{
+                    const rows = tab==='employees' ? await fetchEmployees('inactive') : await fetchUsers('inactive');
+                    setArchRows(rows);
+                    setArch(true);
+                  }catch(e){
+                    alert(String(e&&e.message?e.message:e));
                   }
-                  setArch(true);
                 }}>Archive</button>
                 <button className="btn btn-g sm" onClick={()=>{setQ('');setRf('ALL');setAf('ALL');}}>Reset</button>
                 <button className="btn btn-s sm" onClick={loadAll} disabled={loading}>{loading?'Refreshing…':'Refresh'}</button>
@@ -3148,52 +3642,54 @@ function UserManagement(){
 
         {!err&&tab!=='audit'&&(
           <>
-            <table>
-              <thead>
-                <tr>
-                  <th>{tab==='employees'?'Employee ID':'User ID'}</th>
-                  <th>Name</th>
-                  <th>Role</th>
-                  <th>Gmail</th>
-                  <th>Starting Date</th>
-                  <th>Status</th>
-                  <th className="actcol">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading
-                  ?<tr><td colSpan="7" style={{padding:18,color:'var(--gray-500)'}}>Loading…</td></tr>
-                  :(data.length===0
-                    ?<tr><td colSpan="7" style={{padding:18,color:'var(--gray-500)'}}>No records found.</td></tr>
-                    :data.map(x=>{
-                      const isSelf=String(DATA.userEmployeeId||'')===String(x.employee_id||'');
-                      return(
-                        <tr key={tab==='employees'?x.employee_id:x.id}>
-                          <td><span className="gno">{x.employee_id||'—'}</span></td>
-                          <td>{x.full_name||'—'}</td>
-                          <td style={{fontSize:12,color:'var(--gray-600)'}}>{roleLabel(x.role)}</td>
-                          <td style={{fontSize:12,color:'var(--gray-600)'}}>{x.email||'—'}</td>
-                          <td style={{fontFamily:'var(--mono)',fontSize:12,color:'var(--gray-600)'}}>{x.starting_date||'—'}</td>
-                          <td>{badgeFor(x)}</td>
-                          <td className="actcol">
-                            <div className="tact">
-                              {tab==='employees'
-                                ?<button className="btn btn-s sm" onClick={()=>setEmpModal({mode:'edit',emp:x})}>Edit</button>
-                                :<button className="btn btn-s sm" onClick={()=>setAcctModal({mode:'edit',user:x})}>Reset Password</button>
-                              }
-                              <button className="btn btn-g sm" onClick={()=>tab==='employees'?toggleEmployee(x):toggleUser(x)} disabled={isSelf} title={isSelf?'You cannot deactivate your own record':''}>{x.is_active?'Deactivate':'Activate'}</button>
-                              {tab==='accounts'&&(
-                                <button className="btn btn-p sm" onClick={()=>setDelModal(x)} disabled={isSelf} style={{background:'var(--error-600)'}} title={isSelf?'You cannot delete your own account':''}>Delete</button>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )
-                }
-              </tbody>
-            </table>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>{tab==='employees'?'Employee ID':'User ID'}</th>
+                    <th>Name</th>
+                    <th>Role</th>
+                    <th>Gmail</th>
+                    <th>Starting Date</th>
+                    <th>Status</th>
+                    <th className="actcol">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading
+                    ?<tr><td colSpan="7" style={{padding:18,color:'var(--gray-500)'}}>Loading…</td></tr>
+                    :(data.length===0
+                      ?<tr><td colSpan="7" style={{padding:18,color:'var(--gray-500)'}}>No records found.</td></tr>
+                      :data.map(x=>{
+                        const isSelf=String(DATA.userEmployeeId||'')===String(x.employee_id||'');
+                        return(
+                          <tr key={tab==='employees'?x.employee_id:x.id}>
+                            <td><span className="gno">{x.employee_id||'—'}</span></td>
+                            <td>{x.full_name||'—'}</td>
+                            <td style={{fontSize:12,color:'var(--gray-600)'}}>{roleLabel(x.role)}</td>
+                            <td style={{fontSize:12,color:'var(--gray-600)'}}>{x.email||'—'}</td>
+                            <td style={{fontFamily:'var(--mono)',fontSize:12,color:'var(--gray-600)'}}>{x.starting_date||'—'}</td>
+                            <td>{badgeFor(x)}</td>
+                            <td className="actcol">
+                              <div className="tact">
+                                {tab==='employees'
+                                  ?<button className="btn btn-s sm" onClick={()=>setEmpModal({mode:'edit',emp:x})}>Edit</button>
+                                  :<button className="btn btn-s sm" onClick={()=>setAcctModal({mode:'edit',user:x})}>Reset Password</button>
+                                }
+                                <button className="btn btn-g sm" onClick={()=>tab==='employees'?toggleEmployee(x):toggleUser(x)} disabled={isSelf} title={isSelf?'You cannot deactivate your own record':''}>{x.is_active?'Deactivate':'Activate'}</button>
+                                {tab==='accounts'&&(
+                                  <button className="btn btn-p sm" onClick={()=>setDelModal(x)} disabled={isSelf} style={{background:'var(--error-600)'}} title={isSelf?'You cannot delete your own account':''}>Delete</button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )
+                  }
+                </tbody>
+              </table>
+            </div>
           </>
         )}
 
@@ -3206,43 +3702,45 @@ function UserManagement(){
             )}
             {!auditErr&&(
               <>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Actor</th>
-                      <th>Action</th>
-                      <th>Target</th>
-                      <th>IP</th>
-                      <th>Detail</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {auditLoading
-                      ?<tr><td colSpan="6" style={{padding:18,color:'var(--gray-500)'}}>Loading…</td></tr>
-                      :(auditLogs.length===0
-                        ?<tr><td colSpan="6" style={{padding:18,color:'var(--gray-500)'}}>No logs found.</td></tr>
-                        :auditLogs.map(l=>{
-                          const dt=fmtDT(l.created_at);
-                          const tgt=targetLabel(l.target_type,l.target_id);
-                          const actor=l.actor_employee_id||'—';
-                          const act=actionLabel(l.action);
-                          const det=detailLabel(l.detail);
-                          return(
-                            <tr key={l.id}>
-                              <td style={{fontFamily:'var(--mono)',fontSize:12,color:'var(--gray-600)'}}>{dt||'—'}</td>
-                              <td><span className="gno">{actor}</span></td>
-                              <td style={{fontSize:12,color:'var(--gray-600)',fontWeight:600}}>{act}</td>
-                              <td style={{fontSize:12,color:'var(--gray-600)'}}>{tgt||'—'}</td>
-                              <td style={{fontFamily:'var(--mono)',fontSize:12,color:'var(--gray-600)'}}>{l.ip_address||'—'}</td>
-                              <td style={{fontSize:12,color:'var(--gray-600)'}}>{det}</td>
-                            </tr>
-                          );
-                        })
-                      )
-                    }
-                  </tbody>
-                </table>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Actor</th>
+                        <th>Action</th>
+                        <th>Target</th>
+                        <th>IP</th>
+                        <th>Detail</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {auditLoading
+                        ?<tr><td colSpan="6" style={{padding:18,color:'var(--gray-500)'}}>Loading…</td></tr>
+                        :(auditLogs.length===0
+                          ?<tr><td colSpan="6" style={{padding:18,color:'var(--gray-500)'}}>No logs found.</td></tr>
+                          :auditLogs.map(l=>{
+                            const dt=fmtDT(l.created_at);
+                            const tgt=targetLabel(l.target_type,l.target_id);
+                            const actor=l.actor_employee_id||'—';
+                            const act=actionLabel(l.action);
+                            const det=detailLabel(l.detail);
+                            return(
+                              <tr key={l.id}>
+                                <td style={{fontFamily:'var(--mono)',fontSize:12,color:'var(--gray-600)'}}>{dt||'—'}</td>
+                                <td><span className="gno">{actor}</span></td>
+                                <td style={{fontSize:12,color:'var(--gray-600)',fontWeight:600}}>{act}</td>
+                                <td style={{fontSize:12,color:'var(--gray-600)'}}>{tgt||'—'}</td>
+                                <td style={{fontFamily:'var(--mono)',fontSize:12,color:'var(--gray-600)'}}>{l.ip_address||'—'}</td>
+                                <td style={{fontSize:12,color:'var(--gray-600)'}}>{det}</td>
+                              </tr>
+                            );
+                          })
+                        )
+                      }
+                    </tbody>
+                  </table>
+                </div>
 
                 <div className="pgn" style={{marginTop:12}}>
                   <div className="pgi">Showing {auditTotal===0?0:((auditPage-1)*auditPer+1)}–{Math.min(auditPage*auditPer,auditTotal)} of {auditTotal} logs</div>
@@ -3260,10 +3758,19 @@ function UserManagement(){
   );
 }
 
-function AddModal({close,save}){
+function AddModal({close,save,agencies}){
   const [f,setF]=useState({last:'',first:'',mid:'',suffix:'',bday:'',age:'',agency:'',contact:'',deployed:''});
   const u=k=>e=>setF(p=>({...p,[k]:e.target.value}));
-  const bd=e=>{const d=new Date(e.target.value);setF(p=>({...p,bday:e.target.value,age:isNaN(d)?'':new Date().getFullYear()-d.getFullYear()}));};
+  const bd=e=>{
+    const iso=e.target.value;
+    const d=new Date(String(iso).slice(0,10)+'T00:00:00');
+    if(Number.isNaN(d.getTime())){setF(p=>({...p,bday:iso,age:''}));return;}
+    const now=new Date();
+    let a=now.getFullYear()-d.getFullYear();
+    const m=now.getMonth()-d.getMonth();
+    if(m<0||(m===0&&now.getDate()<d.getDate()))a--;
+    setF(p=>({...p,bday:iso,age:String(Math.max(0,a))}));
+  };
   const go=()=>{if(!f.last.trim()||!f.first.trim()){alert('Last Name and First Name are required.');return;}save(f);close();};
   return(
     <div className="overlay" onClick={e=>e.target===e.currentTarget&&close()}>
@@ -3284,7 +3791,13 @@ function AddModal({close,save}){
             <div className="fgrp"><label className="fl">Age</label><input className="fi" value={f.age} readOnly placeholder="Auto"/></div>
           </div>
           <div className="fg fg2">
-            <div className="fgrp"><label className="fl">Agency</label><select className="fi" value={f.agency} onChange={u('agency')}><option value="">Select agency…</option>{AG.map(a=><option key={a}>{a}</option>)}</select></div>
+            <div className="fgrp">
+              <label className="fl">Agency</label>
+              <input className="fi" value={f.agency} onChange={u('agency')} list="agency_list_add_guard" placeholder="Type or select agency…"/>
+              <datalist id="agency_list_add_guard">
+                {(Array.isArray(agencies)?agencies:[]).map(a=><option key={a} value={a}/>) }
+              </datalist>
+            </div>
             <div className="fgrp"><label className="fl">Contact No.</label><input className="fi" value={f.contact} onChange={u('contact')} placeholder="09XXXXXXXXX"/></div>
           </div>
           <div className="fg fg2">
@@ -3301,10 +3814,10 @@ function AddModal({close,save}){
 }
 
 function Dashboard({guards,onAdd,onGo,summary}){
-  const tot=(summary&&typeof summary.total_guards==='number')?summary.total_guards:guards.length;
-  const mis=(summary&&typeof summary.guards_with_missing==='number')?summary.guards_with_missing:guards.filter(g=>g.missing>0).length;
-  const exp=(summary&&typeof summary.guards_with_expiring_license==='number')?summary.guards_with_expiring_license:guards.filter(g=>g.status==='EXPIRING').length;
-  const ed=(summary&&typeof summary.guards_with_expired_license==='number')?summary.guards_with_expired_license:guards.filter(g=>g.status==='EXPIRED').length;
+  const tot=guards.length;
+  const mis=guards.filter(g=>g.missing>0).length;
+  const exp=guards.filter(g=>g.status==='EXPIRING').length;
+  const ed=guards.filter(g=>g.status==='EXPIRED').length;
   const alerts=guards.filter(g=>g.status==='EXPIRED'||g.status==='MISSING').slice(0,7);
   const cards=[
     {l:'Total Guards',v:tot,i:'blue',icon:<Ic.guard/>,sub:'All registered records',pct:100},
@@ -3361,7 +3874,7 @@ function Dashboard({guards,onAdd,onGo,summary}){
                 <div className="al-av">{(g.first[0]||'')+(g.last[0]||'')}</div>
                 <div className="al-info">
                   <div className="al-name">{nm}</div>
-                  <div className="al-meta">{g.no} · {g.agency} · {dt}</div>
+                  <div className="al-meta">{g.agency} · {dt}</div>
                 </div>
                 <Badge s={g.status}/>
               </div>
@@ -3373,6 +3886,110 @@ function Dashboard({guards,onAdd,onGo,summary}){
 }
 
 const PER=10;
+
+function GuardsArchiveModal({guards,onClose,onRestore,loading}){
+  const [q,setQ]=useState('');
+  const lq=q.trim().toLowerCase();
+  const fil=(Array.isArray(guards)?guards:[]).filter(g=>{
+    if(!lq)return true;
+    const s=(String(g.no||'')+' '+String(g.last||'')+' '+String(g.first||'')+' '+String(g.mid||'')+' '+String(g.agency||'')+' '+String(g.contact||'')).toLowerCase();
+    return s.includes(lq);
+  });
+
+  return(
+    <div className="overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="modal modal-archive">
+        <div className="mhd">
+          <div>
+            <div className="mt">Archive</div>
+            <div className="ms">Guards archived / deleted from active list</div>
+          </div>
+          <button className="mc" onClick={onClose}><Ic.x/></button>
+        </div>
+        <div className="mb">
+          <div className="tctrl" style={{padding:0,marginBottom:12}}>
+            <div className="sw" style={{maxWidth:360}}>
+              <Ic.search/>
+              <input className="si" value={q} onChange={e=>setQ(e.target.value)} placeholder="Search guard no, name, agency, or contact…"/>
+            </div>
+          </div>
+
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Guard No.</th>
+                  <th>Name</th>
+                  <th>Agency</th>
+                  <th>Deploy Date</th>
+                  <th>Contact</th>
+                  <th className="actcol">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading
+                  ?<tr><td colSpan="6" style={{padding:18,color:'var(--gray-500)'}}>Loading…</td></tr>
+                  :fil.length===0
+                    ?<tr><td colSpan="6" style={{padding:18,color:'var(--gray-500)'}}>No archived guards.</td></tr>
+                    :fil.map((g,i)=>{
+                      const nm=`${g.last||''}, ${g.first||''} ${g.mid||''}`.trim();
+                      return(
+                        <tr key={g.id}>
+                          <td><span className="gno">{i+1}</span></td>
+                          <td>{nm||'—'}</td>
+                          <td>{g.agency||'—'}</td>
+                          <td style={{fontFamily:'var(--mono)',fontSize:12,color:'var(--gray-600)'}}>{fmtDate(g.deployed)}</td>
+                          <td style={{fontFamily:'var(--mono)',fontSize:12,color:'var(--gray-600)'}}>{g.contact||'—'}</td>
+                          <td className="actcol">
+                            <div className="tact">
+                              <button className="btn btn-op sm" onClick={()=>onRestore(g)}>Restore</button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmArchiveGuardModal({g,onClose,onConfirm,saving}){
+  if(!g)return null;
+  const nm=`${g.last||''}, ${g.first||''} ${g.mid||''}`.trim();
+  return(
+    <div className="overlay" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="modal">
+        <div className="mhd">
+          <div>
+            <div className="mt">Archive Guard</div>
+            <div className="ms">This will move the guard to Archive</div>
+          </div>
+          <button className="mc" onClick={onClose} disabled={saving}><Ic.x/></button>
+        </div>
+        <div className="mb">
+          <div className="card" style={{border:'1px solid var(--error-200)',background:'var(--error-50)',boxShadow:'none',borderRadius:'var(--r)',padding:'12px 14px'}}>
+            <div style={{fontWeight:700,color:'var(--error-700)',marginBottom:4}}>Confirm archive</div>
+            <div style={{fontSize:12,color:'var(--error-700)'}}>
+              You are about to archive:
+              <span style={{fontFamily:'var(--mono)',marginLeft:8}}>{g.displayNo?`#${g.displayNo}`:'—'}</span>
+              <span style={{marginLeft:8,fontWeight:600}}>{nm||'—'}</span>
+            </div>
+          </div>
+          <div className="fac">
+            <button className="btn btn-s sm" onClick={onClose} disabled={saving}>Cancel</button>
+            <button className="btn btn-p sm" onClick={onConfirm} disabled={saving} style={{background:'var(--error-600)'}}>{saving?'Archiving…':'Archive'}</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function GuardsList({guards,setGuards,initSt}){
   const [q,setQ]=useState('');
   const [sf,setSf]=useState(initSt||'ALL');
@@ -3381,6 +3998,16 @@ function GuardsList({guards,setGuards,initSt}){
   const [view,setView]=useState(null);
   const [add,setAdd]=useState(false);
   const [toast,setToast]=useState('');
+  const [archOpen,setArchOpen]=useState(false);
+  const [archLoading,setArchLoading]=useState(false);
+  const [archGuards,setArchGuards]=useState([]);
+  const [confirmArch,setConfirmArch]=useState(null);
+  const [confirmSaving,setConfirmSaving]=useState(false);
+
+  const agencyOptions = useMemo(
+    () => [...new Set((guards || []).map(g => g && g.agency).filter(Boolean))],
+    [guards]
+  );
 
   const daysUntil=(iso)=>{
     if(!iso)return null;
@@ -3413,6 +4040,57 @@ function GuardsList({guards,setGuards,initSt}){
   };
 
   const showT=m=>{setToast(m);setTimeout(()=>setToast(''),3000);};
+
+  const openArchive=async()=>{
+    setArchOpen(true);
+    setArchLoading(true);
+    try{
+      const fd=new FormData();
+      fd.append('api','list_guards');
+      const j=await apiPost(fd,'?status=inactive');
+      setArchGuards(Array.isArray(j.guards)?j.guards:[]);
+    }catch(e){
+      setArchGuards([]);
+      showT(e.message||'Failed to load archive.');
+    }finally{
+      setArchLoading(false);
+    }
+  };
+
+  const restoreGuard=async g=>{
+    try{
+      const fd=new FormData();
+      fd.append('api','toggle_guard_active');
+      fd.append('guard_id',String(g.id));
+      fd.append('is_active','1');
+      await apiPost(fd);
+      setArchGuards(p=>p.filter(x=>x.id!==g.id));
+      setGuards(p=>[{...g,recordStatus:'active'},...p]);
+      showT('Guard restored successfully.');
+    }catch(e){
+      showT(e.message||'Failed to restore guard.');
+    }
+  };
+
+  const archiveGuard=async g=>{
+    if(!g||!g.id)return;
+    setConfirmSaving(true);
+    try{
+      const fd=new FormData();
+      fd.append('api','toggle_guard_active');
+      fd.append('guard_id',String(g.id));
+      fd.append('is_active','0');
+      await apiPost(fd);
+      setGuards(p=>p.filter(x=>x.id!==g.id));
+      if(view&&view.id===g.id){setView(null);}
+      setConfirmArch(null);
+      showT('Guard archived successfully.');
+    }catch(e){
+      showT(e.message||'Failed to archive guard.');
+    }finally{
+      setConfirmSaving(false);
+    }
+  };
   const fil=guards.filter(g=>{
     const lq=q.toLowerCase();
     const no=String(g.no||'').toLowerCase();
@@ -3442,10 +4120,11 @@ function GuardsList({guards,setGuards,initSt}){
       fd.append('contact_no',form.contact);
       fd.append('deployed',form.deployed);
       const j=await apiPost(fd);
+      const missingReqs=Array.isArray(RQS)?RQS.slice():[];
       const g={id:j.guard_id,no:j.guard_no,
         last:form.last,first:form.first,mid:form.mid,suffix:form.suffix,
         bday:form.bday,age:parseInt(form.age)||0,agency:form.agency,contact:form.contact,deployed:form.deployed,
-        status:'VALID',expDate:'',missing:0,missingReqs:[]};
+        recordStatus:'active',status:missingReqs.length>0?'MISSING':'VALID',expDate:'',missing:missingReqs.length,missingReqs};
       setGuards(p=>[g,...p]);
       showT('Guard registered successfully.');
     }catch(e){
@@ -3456,16 +4135,26 @@ function GuardsList({guards,setGuards,initSt}){
   for(let p=Math.max(1,pg-2);p<=Math.min(pages,pg+2);p++)pns.push(p);
   return(
     <>
+      {archOpen&&<GuardsArchiveModal guards={archGuards} loading={archLoading} onClose={()=>setArchOpen(false)} onRestore={restoreGuard}/>}
+      {confirmArch&&(
+        <ConfirmArchiveGuardModal
+          g={confirmArch}
+          saving={confirmSaving}
+          onClose={()=>!confirmSaving&&setConfirmArch(null)}
+          onConfirm={()=>archiveGuard(confirmArch)}
+        />
+      )}
       {view&&<GuardModal g={view} close={()=>setView(null)} onUpdated={(ng)=>{
         setGuards(p=>p.map(x=>x.id===ng.id?{...x,...ng}:x));
-        setView(ng);
+        setView(p=>p&&p.id===ng.id?{...p,...ng}:ng);
       }}/>} 
-      {add&&<AddModal close={()=>setAdd(false)} save={sv}/>} 
+      {add&&<AddModal close={()=>setAdd(false)} save={sv} agencies={agencyOptions}/>} 
       {toast&&<div className="toast"><div className="tico"><Ic.check/></div><div className="ttxt">{toast}</div></div>} 
       <div className="ph">
         <div>
         </div>
         <div className="ph-actions">
+          <button className="btn btn-g sm" onClick={openArchive}>Archive</button>
           <button className="btn btn-p sm" onClick={()=>setAdd(true)}><Ic.plus/>Add Guard</button>
         </div>
       </div>
@@ -3478,40 +4167,50 @@ function GuardsList({guards,setGuards,initSt}){
           </select>
           <select className="ts" value={af} onChange={e=>setAf(e.target.value)}>
             <option value="ALL">All Agencies</option>
-            {AG.map(a=><option key={a} value={a}>{a}</option>)}
+            {agencyOptions.map(a=><option key={a} value={a}>{a}</option>)}
           </select>
           {(q||sf!=='ALL'||af!=='ALL')&&<button className="btn btn-g sm" onClick={()=>{setQ('');setSf('ALL');setAf('ALL');}}>Clear</button>}
         </div>
         {rows.length===0
           ?<div className="empty"><div className="ei"><Ic.guard/></div><div className="et">No results found</div><div className="es">Try a different search or filter</div></div>
-          :<table>
-            <thead><tr>
-              <th>Guard No.</th><th>Name</th><th>Agency</th><th>Deploy Date</th><th>Contact</th>
-              <th>Missing</th><th>License Status</th><th>Expiry Date</th><th>Action</th>
-            </tr></thead>
-            <tbody>
-              {rows.map(g=>(
-                <tr key={g.id}>
-                  <td><span className="gno">{g.no}</span></td>
-                  <td><span className="gnm" onClick={()=>setView(g)}>{g.last}, {g.first} {g.mid}</span></td>
-                  <td>{g.agency}</td>
-                  <td><span className="dep-cell" style={{fontFamily:'var(--mono)',fontSize:12}}>{fmtDate(g.deployed)}</span></td>
-                  <td style={{fontFamily:'var(--mono)',fontSize:12}}>{g.contact}</td>
-                  <td><span className={g.missing===0?'mc0':'mcn'}>{g.missing}</span></td>
-                  <td><Badge s={g.status}/></td>
-                  <td>
-                    <div className="exp-cell">
-                      <div className="exp-date">{fmtDate(g.expDate)}</div>
-                      <div className={`exp-days ${'exp-'+expTone(daysUntil(g.expDate))}`}>{expLabel(daysUntil(g.expDate))}</div>
-                    </div>
-                  </td>
-                  <td style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-                    <button className="btn btn-op sm" onClick={()=>setView(g)}>Open</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>}
+          :<div className="table-wrap">
+            <table>
+              <thead><tr>
+                <th>Guard No.</th><th>Name</th><th>Agency</th><th>Deploy Date</th><th>Contact</th>
+                <th>Missing</th><th>License Status</th><th>Expiry Date</th><th className="actcol">Actions</th>
+              </tr></thead>
+              <tbody>
+                {rows.map((g,i)=>{
+                  const seqNo=(pg-1)*PER+i+1;
+                  const open=()=>setView({...g,displayNo:seqNo});
+                  const askArchive=()=>setConfirmArch({...g,displayNo:seqNo});
+                  return(
+                  <tr key={g.id}>
+                    <td><span className="gno">{(pg-1)*PER+i+1}</span></td>
+                    <td><span className="gnm" onClick={open}>{g.last}, {g.first} {g.mid}</span></td>
+                    <td>{g.agency}</td>
+                    <td><span className="dep-cell" style={{fontFamily:'var(--mono)',fontSize:12}}>{fmtDate(g.deployed)}</span></td>
+                    <td style={{fontFamily:'var(--mono)',fontSize:12}}>{g.contact}</td>
+                    <td><span className={g.missing===0?'mc0':'mcn'}>{g.missing}</span></td>
+                    <td><Badge s={g.status}/></td>
+                    <td>
+                      <div className="exp-cell">
+                        <div className="exp-date">{fmtDate(g.expDate)}</div>
+                        <div className={`exp-days ${'exp-'+expTone(daysUntil(g.expDate))}`}>{expLabel(daysUntil(g.expDate))}</div>
+                      </div>
+                    </td>
+                    <td className="actcol">
+                      <div className="tact">
+                        <button className="btn btn-op sm" onClick={open}>Open</button>
+                        <button className="btn btn-p sm" onClick={askArchive} style={{background:'var(--error-600)'}}>Delete</button>
+                      </div>
+                    </td>
+                  </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>}
         <div className="pgn">
           <div className="pgi">Showing {fil.length>0?s1:0}–{s2} of {fil.length} guards</div>
           <div className="pgb">
@@ -3529,8 +4228,18 @@ function App(){
   const [pg,setPg]=useState('dashboard');
   const [guards,setGuards]=useState(GD);
   const [addOpen,setAddOpen]=useState(false);
+  const [sbOpen,setSbOpen]=useState(false);
   const [fst,setFst]=useState('ALL');
   const expired=guards.filter(g=>g.status==='EXPIRED').length;
+
+  useEffect(()=>{
+    if(!sbOpen)return;
+    const onKey=e=>{if(e.key==='Escape')setSbOpen(false);};
+    window.addEventListener('keydown',onKey);
+    return()=>window.removeEventListener('keydown',onKey);
+  },[sbOpen]);
+
+  useEffect(()=>{setSbOpen(false);},[pg]);
 
   const isAdmin=(DATA.userRole||'')==='admin';
   const nav=[
@@ -3585,7 +4294,7 @@ function App(){
           onClick={() => setOpen(v => !v)}
         >
           <div className="sb-av">{DATA.userInitials||'U'}</div>
-          <div style={{minWidth:0}}>
+          <div className="sb-meta">
             <div className="sb-uname" style={{whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{DATA.userName||'User'}</div>
             <div className="sb-urole">{roleLabel(DATA.userRole||'')}</div>
           </div>
@@ -3627,10 +4336,11 @@ function App(){
       fd.append('contact_no',form.contact);
       fd.append('deployed',form.deployed);
       const j=await apiPost(fd);
+      const missingReqs=Array.isArray(RQS)?RQS.slice():[];
       const g={id:j.guard_id,no:j.guard_no,
         last:form.last,first:form.first,mid:form.mid,suffix:form.suffix,
         bday:form.bday,age:parseInt(form.age)||0,agency:form.agency,contact:form.contact,deployed:form.deployed,
-        status:'VALID',expDate:'',missing:0,missingReqs:[]};
+        recordStatus:'active',status:missingReqs.length>0?'MISSING':'VALID',expDate:'',missing:missingReqs.length,missingReqs};
       setGuards(p=>[g,...p]);
       setPg('guards');
     }catch(e){
@@ -3638,13 +4348,14 @@ function App(){
     }
   };
   return(
-    <div className="shell">
+    <div className={`shell${sbOpen?' sb-open':''}`}>
       {addOpen&&<AddModal close={()=>setAddOpen(false)} save={addG}/>}
+      <div className="sb-backdrop" aria-hidden="true" onClick={()=>setSbOpen(false)}/>
       <aside className="sb">
         <div className="sb-top">
           <div className="sb-brand">
              <div className="sb-logo" aria-hidden="true">
-               <img src="../assets/img/jubecer-logo.svg" alt="" style={{width:'100%',height:'100%'}} />
+               <img src="../assets/img/jubecer-logo.svg" alt="" />
              </div>
              <div><div className="sb-name">ERMS</div><div className="sb-tagline">{DATA.companyLabel||'Company'}</div></div>
            </div>
@@ -3652,8 +4363,8 @@ function App(){
        <div className="sb-nav">
           <div className="sb-nav-label">Navigation</div>
           {nav.map(n=>(
-            <button key={n.id} className={`sb-item${pg===n.id?' on':''}`} onClick={()=>setPg(n.id)}>
-              {n.icon}<span style={{flex:1}}>{n.label}</span>
+            <button key={n.id} className={`sb-item${pg===n.id?' on':''}`} onClick={()=>{setPg(n.id);setSbOpen(false);}}>
+              {n.icon}<span className="sb-label">{n.label}</span>
               {n.badge>0&&<span className="sb-pill">{n.badge}</span>}
             </button>
           ))}
@@ -3664,15 +4375,18 @@ function App(){
        </aside>
       <main className="main">
         <div className="topbar">
-          <div>
-            <div className="tb-pg">{pgTitle(pg)}</div>
-            <div className="tb-crumb">ERMS &rsaquo; {pgTitle(pg)}</div>
+          <div className="tb-left">
+            <button className="tb-menu" type="button" aria-label="Toggle navigation" aria-expanded={sbOpen?'true':'false'} onClick={()=>setSbOpen(v=>!v)}>
+              <Ic.menu/>
+            </button>
+            <div className="tb-title">
+              <div className="tb-pg">{pgTitle(pg)}</div>
+              <div className="tb-crumb">ERMS &rsaquo; {pgTitle(pg)}</div>
+            </div>
           </div>
           <div className="tb-r">
             <Clock/>
-            <button className="tb-icobtn" style={{position:'relative'}}>
-              <Ic.bell/><div className="tb-dot"/>
-            </button>
+            <NotificationMenu alerts={Array.isArray(DATA.licenseAlerts)?DATA.licenseAlerts:[]} />
           </div>
         </div>
         <div className="content">

@@ -721,7 +721,9 @@ if ($userInitials === '') {
         <aside class="sidebar" aria-label="Sidebar Navigation">
             <div class="sidebar-top">
                 <div class="brand">
-                    <div class="brand-logo" aria-hidden="true">J</div>
+                    <div class="brand-logo" aria-hidden="true">
+                        <img src="../assets/img/jubecer-logo.svg" alt="" />
+                    </div>
                     <div class="brand-text">
                         <div class="brand-title">ERMS</div>
                         <div class="brand-subtitle">Jubecer</div>
@@ -790,7 +792,7 @@ if ($userInitials === '') {
                                 Switch Company
                             </a>
                         <?php endif; ?>
-                        <a class="profile-menu-item" role="menuitem" href="../auth/logout.php">
+                        <a class="profile-menu-item js-logout" role="menuitem" href="../auth/logout.php">
                             <span class="profile-menu-icon" aria-hidden="true">
                                 <svg viewBox="0 0 24 24" aria-hidden="true">
                                     <path d="M10 17l-1 4 4-1" />
@@ -1046,6 +1048,71 @@ if ($userInitials === '') {
             document.addEventListener('keydown', function (e) {
                 if (e.key === 'Escape') {
                     closeMenu();
+                }
+            });
+        })();
+    </script>
+
+    <div class="logout-modal" id="logoutModal" aria-hidden="true" role="dialog" aria-modal="true">
+        <div class="logout-card" role="document">
+            <div class="logout-title">Logout</div>
+            <div class="logout-text">Are you sure you want to log out?</div>
+            <div class="logout-actions">
+                <button type="button" class="logout-btn cancel" data-logout-cancel>Cancel</button>
+                <button type="button" class="logout-btn confirm" data-logout-confirm>Logout</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            var modal = document.getElementById('logoutModal');
+            var triggers = document.querySelectorAll('.js-logout');
+            if (!modal || !triggers.length) return;
+
+            var confirmBtn = modal.querySelector('[data-logout-confirm]');
+            var cancelBtn = modal.querySelector('[data-logout-cancel]');
+            var href = '';
+
+            function openModal(url) {
+                href = url || '../auth/logout.php';
+                modal.classList.add('is-open');
+                modal.setAttribute('aria-hidden', 'false');
+            }
+
+            function closeModal() {
+                modal.classList.remove('is-open');
+                modal.setAttribute('aria-hidden', 'true');
+            }
+
+            triggers.forEach(function (trigger) {
+                trigger.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    openModal(trigger.getAttribute('href'));
+                });
+            });
+
+            if (confirmBtn) {
+                confirmBtn.addEventListener('click', function () {
+                    window.location.href = href || '../auth/logout.php';
+                });
+            }
+
+            if (cancelBtn) {
+                cancelBtn.addEventListener('click', function () {
+                    closeModal();
+                });
+            }
+
+            modal.addEventListener('click', function (e) {
+                if (e.target === modal) {
+                    closeModal();
+                }
+            });
+
+            document.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape' && modal.classList.contains('is-open')) {
+                    closeModal();
                 }
             });
         })();

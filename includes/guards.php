@@ -1,5 +1,18 @@
 <?php
 
+// Ensure consistent timestamps across exports/pages.
+// Default to Asia/Manila (Brain Master / PH) unless overridden by ERMS_TIMEZONE.
+$ermsTz = getenv('ERMS_TIMEZONE');
+if (!is_string($ermsTz) || trim($ermsTz) === '') {
+    $ermsTz = 'Asia/Manila';
+}
+if (function_exists('date_default_timezone_set')) {
+    // Suppress warnings for invalid timezones; fall back to Asia/Manila.
+    if (@date_default_timezone_set($ermsTz) !== true) {
+        @date_default_timezone_set('Asia/Manila');
+    }
+}
+
 function require_login(): void
 {
     if (session_status() !== PHP_SESSION_ACTIVE) {

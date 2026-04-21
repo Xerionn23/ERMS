@@ -592,7 +592,16 @@ function GuardModal({g,close}){
 function AddModal({close,save}){
   const [f,setF]=useState({last:'',first:'',mid:'',suffix:'',bday:'',age:'',agency:'',contact:''});
   const u=k=>e=>setF(p=>({...p,[k]:e.target.value}));
-  const bd=e=>{const d=new Date(e.target.value);setF(p=>({...p,bday:e.target.value,age:isNaN(d)?'':new Date().getFullYear()-d.getFullYear()}));};
+  const bd=e=>{
+    const iso=e.target.value;
+    const d=new Date(String(iso).slice(0,10)+'T00:00:00');
+    if(Number.isNaN(d.getTime())){setF(p=>({...p,bday:iso,age:''}));return;}
+    const now=new Date();
+    let a=now.getFullYear()-d.getFullYear();
+    const m=now.getMonth()-d.getMonth();
+    if(m<0||(m===0&&now.getDate()<d.getDate()))a--;
+    setF(p=>({...p,bday:iso,age:String(Math.max(0,a))}));
+  };
   const go=()=>{if(!f.last.trim()||!f.first.trim()){alert('Last Name and First Name are required.');return;}save(f);close();};
   return(
     <div className="overlay" onClick={e=>e.target===e.currentTarget&&close()}>
@@ -613,7 +622,13 @@ function AddModal({close,save}){
             <div className="fgrp"><label className="fl">Age</label><input className="fi" value={f.age} readOnly placeholder="Auto"/></div>
           </div>
           <div className="fg fg2">
-            <div className="fgrp"><label className="fl">Agency</label><select className="fi" value={f.agency} onChange={u('agency')}><option value="">Select agency…</option>{AG.map(a=><option key={a}>{a}</option>)}</select></div>
+            <div className="fgrp">
+              <label className="fl">Agency</label>
+              <input className="fi" value={f.agency} onChange={u('agency')} list="agency_list_add_guard" placeholder="Type or select agency…"/>
+              <datalist id="agency_list_add_guard">
+                {AG.map(a=><option key={a} value={a}/>)}
+              </datalist>
+            </div>
             <div className="fgrp"><label className="fl">Contact No.</label><input className="fi" value={f.contact} onChange={u('contact')} placeholder="09XXXXXXXXX"/></div>
           </div>
           <div className="fac">

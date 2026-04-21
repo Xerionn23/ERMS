@@ -117,6 +117,28 @@ CREATE TABLE IF NOT EXISTS guard_requirements (
     CONSTRAINT fk_guard_requirements_requirement_type_id FOREIGN KEY (requirement_type_id) REFERENCES requirement_types(id) ON DELETE RESTRICT
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS generated_documents (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    company VARCHAR(40) NOT NULL,
+    document_type ENUM('neuro', 'drug_test') NOT NULL,
+    document_date DATE NULL,
+    full_name VARCHAR(180) NOT NULL,
+    purpose VARCHAR(40) NULL,
+    purpose_specify VARCHAR(120) NULL,
+    folder_name VARCHAR(120) NOT NULL,
+    file_name VARCHAR(255) NOT NULL,
+    file_path VARCHAR(255) NOT NULL,
+    created_by_user_id INT UNSIGNED NULL,
+    created_by_employee_id VARCHAR(50) NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_generated_documents_file (company, file_path),
+    KEY idx_generated_documents_company (company),
+    KEY idx_generated_documents_doc_date (document_date),
+    KEY idx_generated_documents_type (document_type),
+    KEY idx_generated_documents_created_at (created_at)
+) ENGINE=InnoDB;
+
 INSERT IGNORE INTO requirement_types (code, name, expires, is_required) VALUES
 ('SSS', 'SSS', 0, 1),
 ('PAGIBIG', 'PAG-IBIG', 0, 1),

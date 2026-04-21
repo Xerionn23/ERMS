@@ -41,6 +41,11 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 $employeeId = trim((string)($_POST['employee_id'] ?? ''));
+$intent = strtolower(trim((string)($_POST['intent'] ?? 'create')));
+if (!in_array($intent, ['create', 'reset'], true)) {
+    $intent = 'create';
+}
+$isReset = $intent === 'reset';
 
 if ($employeeId === '') {
     http_response_code(400);
@@ -190,12 +195,22 @@ try {
     $uStmt->execute(['employee_id' => $employeeId]);
     $existingUser = $uStmt->fetch();
 
-    if ($existingUser) {
-        audit_setup($pdo, 'account_setup_request_failed', $employeeId, ['reason' => 'account_exists']);
+    if ($existingUser && !$isReset) {
+        audit_setup($pdo, 'account_setup_request_failed', $employeeId, ['reason' => 'account_exists', 'intent' => $intent]);
         http_response_code(400);
         echo json_encode([
             'ok' => false,
             'error' => 'An account already exists for this User ID. Please sign in.',
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if (!$existingUser && $isReset) {
+        audit_setup($pdo, 'account_setup_request_failed', $employeeId, ['reason' => 'account_missing', 'intent' => $intent]);
+        http_response_code(400);
+        echo json_encode([
+            'ok' => false,
+            'error' => 'No account found for this User ID. Please use Create account.',
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -211,11 +226,22 @@ try {
     }
 
     if (!$okToSend) {
-        audit_setup($pdo, 'account_setup_request_failed', $employeeId, ['reason' => 'not_found_inactive_or_missing_email']);
+        audit_setup($pdo, 'account_setup_request_failed', $employeeId, ['reason' => 'not_found_inactive_or_missing_email', 'intent' => $intent]);
         http_response_code(400);
         echo json_encode([
             'ok' => false,
             'error' => 'User ID not found, inactive, or missing email on file.',
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $isGmail = $email !== '' && preg_match('/^[^@\s]+@gmail\.com$/i', $email) === 1;
+    if (!$isGmail) {
+        audit_setup($pdo, 'account_setup_request_failed', $employeeId, ['reason' => 'non_gmail_email', 'intent' => $intent]);
+        http_response_code(400);
+        echo json_encode([
+            'ok' => false,
+            'error' => 'Only Gmail addresses are supported for account links. Please update your Gmail on file.',
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -231,35 +257,49 @@ try {
         ]);
 
         $link = baseUrl() . '/pages/create_password.php?token=' . urlencode($raw);
-        $subject = 'ERMS Account Setup';
-        $bodyText = "Hello,\n\nPlease click this link to create your ERMS account password:\n\n" . $link . "\n\nThis link will expire in 5 minutes.\n\nIf you did not request this, you can ignore this email.\n";
+        $subject = $isReset ? 'ERMS Password Reset' : 'ERMS Account Setup';
+        $actionLabel = $isReset ? 'Reset Password' : 'Create Password';
+        $actionVerb = $isReset ? 'reset' : 'create';
+        $actionTitle = $isReset ? 'Reset your password' : 'Set up your account';
+        $bodyText = "Hello,\n\nThis request was made for your ERMS account. Use the link below to "
+            . $actionVerb
+            . " your password:\n\n" . $link
+            . "\n\nThis link is valid for 5 minutes.\n"
+            . "Do not share this link with anyone.\n"
+            . "If you did not request this, you can ignore this email.\n";
         $bodyHtml = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>'
-            . '<body style="margin:0;padding:0;background:#F9FAFB;font-family:Arial,Helvetica,sans-serif;color:#344054;">'
-            . '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#F9FAFB;padding:24px 12px;">'
+            . '<body style="margin:0;padding:0;background:#F4F6FB;font-family:Arial,Helvetica,sans-serif;color:#1F2937;">'
+            . '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#F4F6FB;padding:32px 12px;">'
             . '<tr><td align="center">'
-            . '<table role="presentation" width="560" cellspacing="0" cellpadding="0" style="width:560px;max-width:100%;background:#ffffff;border:1px solid #E4E7EC;border-radius:16px;overflow:hidden;">'
-            . '<tr><td style="padding:20px 22px;background:#EEF4FF;border-bottom:1px solid #E0EAFF;">'
+            . '<table role="presentation" width="620" cellspacing="0" cellpadding="0" style="width:620px;max-width:100%;background:#ffffff;border:1px solid #E5E7EB;border-radius:16px;overflow:hidden;">'
+            . '<tr><td style="padding:16px 22px;background:#EEF2FF;border-bottom:1px solid #E0E7FF;">'
             . '<table role="presentation" width="100%" cellspacing="0" cellpadding="0"><tr>'
             . '<td style="font-weight:800;color:#1F2370;font-size:14px;letter-spacing:-0.2px;">ERMS</td>'
-            . '<td align="right" style="font-size:11px;color:#475467;font-family:monospace;">SECURE ACCESS</td>'
+            . '<td align="right" style="font-size:11px;color:#6B7280;font-family:monospace;">SECURE ACCESS</td>'
             . '</tr></table>'
             . '</td></tr>'
-            . '<tr><td style="padding:22px 22px 10px;">'
-            . '<div style="font-size:18px;font-weight:800;color:#101828;letter-spacing:-0.3px;">Create your password</div>'
-            . '<div style="margin-top:6px;font-size:13px;line-height:1.6;color:#475467;">Click the button below to set your ERMS password. This link expires in <b>5 minutes</b>.</div>'
+            . '<tr><td style="padding:22px 22px 6px;">'
+            . '<div style="font-size:18px;font-weight:800;color:#0F172A;letter-spacing:-0.2px;">' . $actionTitle . '</div>'
+            . '<div style="margin-top:6px;font-size:13px;line-height:1.6;color:#475467;">This request was made for your ERMS account. Use the button below to ' . $actionVerb . ' your password.</div>'
             . '</td></tr>'
-            . '<tr><td style="padding:14px 22px 18px;">'
-            . '<table role="presentation" cellspacing="0" cellpadding="0"><tr><td align="center" bgcolor="#3538CD" style="border-radius:10px;">'
-            . '<a href="' . htmlspecialchars($link, ENT_QUOTES) . '" style="display:inline-block;padding:12px 16px;color:#ffffff;text-decoration:none;font-weight:800;font-size:14px;">Create Password</a>'
+            . '<tr><td style="padding:10px 22px 0;">'
+            . '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #E5E7EB;background:#F9FAFB;border-radius:12px;">'
+            . '<tr><td style="padding:10px 12px;font-size:12px;color:#475467;">Action</td><td align="right" style="padding:10px 12px;font-size:12px;font-weight:700;color:#0F172A;">' . $actionLabel . '</td></tr>'
+            . '<tr><td style="padding:10px 12px;font-size:12px;color:#475467;border-top:1px solid #E5E7EB;">Link expires</td><td align="right" style="padding:10px 12px;font-size:12px;font-weight:700;color:#0F172A;border-top:1px solid #E5E7EB;">5 minutes</td></tr>'
+            . '</table>'
+            . '</td></tr>'
+            . '<tr><td style="padding:16px 22px 18px;">'
+            . '<table role="presentation" cellspacing="0" cellpadding="0"><tr><td align="center" bgcolor="#1F3A8A" style="border-radius:10px;">'
+            . '<a href="' . htmlspecialchars($link, ENT_QUOTES) . '" style="display:inline-block;padding:12px 20px;color:#ffffff;text-decoration:none;font-weight:800;font-size:14px;">' . $actionLabel . '</a>'
             . '</td></tr></table>'
-            . '<div style="margin-top:12px;font-size:12px;color:#667085;line-height:1.5;">If the button doesn’t work, copy and paste this link:</div>'
-            . '<div style="margin-top:6px;font-size:12px;line-height:1.5;word-break:break-all;">
-                <a href="' . htmlspecialchars($link, ENT_QUOTES) . '" style="color:#444CE7;text-decoration:underline;">' . htmlspecialchars($link, ENT_QUOTES) . '</a>
-              </div>'
+            . '<div style="margin-top:12px;font-size:12px;color:#6B7280;line-height:1.5;">If the button does not work, copy and paste this link:</div>'
+            . '<div style="margin-top:6px;font-size:12px;line-height:1.6;word-break:break-all;">'
+            . '<a href="' . htmlspecialchars($link, ENT_QUOTES) . '" style="color:#1F3A8A;text-decoration:underline;">' . htmlspecialchars($link, ENT_QUOTES) . '</a>'
+            . '</div>'
             . '</td></tr>'
-            . '<tr><td style="padding:14px 22px;background:#FCFCFD;border-top:1px solid #F2F4F7;">'
-            . '<div style="font-size:11px;color:#667085;line-height:1.6;">If you did not request this, you can ignore this email.</div>'
-            . '<div style="margin-top:6px;font-size:11px;color:#98A2B3;">© ' . date('Y') . ' ERMS</div>'
+            . '<tr><td style="padding:14px 22px;background:#F9FAFB;border-top:1px solid #F3F4F6;">'
+            . '<div style="font-size:11px;color:#6B7280;line-height:1.6;">Do not share this link with anyone. If you did not request this email, you can ignore it.</div>'
+            . '<div style="margin-top:6px;font-size:11px;color:#9CA3AF;">&copy; ' . date('Y') . ' ERMS</div>'
             . '</td></tr>'
             . '</table>'
             . '</td></tr></table>'
@@ -288,14 +328,16 @@ try {
         }
 
         try {
-            audit_setup($pdo, 'account_setup_requested', $employeeId, ['email_sent' => $sent ? 1 : 0]);
+            audit_setup($pdo, 'account_setup_requested', $employeeId, ['email_sent' => $sent ? 1 : 0, 'intent' => $intent]);
         } catch (Throwable $e2) {
         }
     }
 
     echo json_encode([
         'ok' => true,
-        'message' => 'If your User ID is eligible, a setup link has been sent to the email on file.',
+        'message' => $isReset
+            ? 'If your User ID is eligible, a reset link has been sent to the Gmail on file.'
+            : 'If your User ID is eligible, a setup link has been sent to the Gmail on file.',
     ], JSON_UNESCAPED_UNICODE);
     exit;
 } catch (Throwable $e) {

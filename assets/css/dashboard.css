@@ -865,6 +865,12 @@ button:focus-visible {
     color: var(--primary-dark);
 }
 
+.chip img {
+    width: 70%;
+    height: 70%;
+    object-fit: contain;
+}
+
 .chip.purple { background: rgba(168, 85, 247, 0.16); border-color: rgba(168, 85, 247, 0.32); color: #6d28d9; }
 .chip.orange { background: rgba(249, 115, 22, 0.16); border-color: rgba(249, 115, 22, 0.32); color: #c2410c; }
 
@@ -988,6 +994,81 @@ button:focus-visible {
 
 .secondary-btn:hover {
     background: rgba(226, 232, 240, 0.8);
+}
+
+.logout-modal {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.45);
+    z-index: 80;
+    padding: 16px;
+}
+
+.logout-modal.is-open {
+    display: flex;
+}
+
+.logout-card {
+    background: rgba(255, 255, 255, 0.98);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+    width: min(420px, 95vw);
+    padding: 18px;
+    border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.logout-title {
+    font-size: 16px;
+    font-weight: 800;
+    color: #0f172a;
+}
+
+.logout-text {
+    font-size: 13px;
+    color: rgba(107, 114, 128, 0.95);
+    margin-top: 6px;
+    line-height: 1.5;
+}
+
+.logout-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    margin-top: 16px;
+}
+
+.logout-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 14px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 750;
+    border: 1px solid transparent;
+    cursor: pointer;
+}
+
+.logout-btn.cancel {
+    background: rgba(243, 246, 251, 0.92);
+    color: #0f172a;
+    border-color: rgba(148, 163, 184, 0.45);
+}
+
+.logout-btn.cancel:hover {
+    background: rgba(226, 232, 240, 0.85);
+}
+
+.logout-btn.confirm {
+    background: #d92d20;
+    color: #ffffff;
+}
+
+.logout-btn.confirm:hover {
+    background: #b42318;
 }
 
 .req-toolbar {
