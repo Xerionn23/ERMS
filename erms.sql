@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Apr 20, 2026 at 07:54 AM
+-- Generation Time: Apr 21, 2026 at 02:53 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -47,8 +47,8 @@ CREATE TABLE `users` (
 
 INSERT INTO `users` (`id`, `employee_id`, `full_name`, `email`, `starting_date`, `role`, `password_hash`, `is_active`, `deactivated_at`, `created_at`, `updated_at`) VALUES
 (1, 'ADMIN-001', 'Administrator', NULL, NULL, 'admin', '$2y$10$qRL2f93iw/VKjEPH6Bbivuw9Nlb0X5i4FsZ8v42NxAYZawiWqyXOi', 1, NULL, '2026-03-02 00:23:55', '2026-03-12 19:08:37'),
-(10, 'SO-004', 'Rotcher A. Cadorna Jr.', 'rotchercadorna16@gmail.com', '2026-01-08', 'security_operation', '$2y$10$I4/maCo4MgQfxWFVJTb5uu6W4jV2dClAMW3eG7lojHyasCIxIz1Ci', 1, NULL, '2026-03-18 05:28:29', '2026-04-20 01:41:52'),
-(11, 'EMP-003', 'Rotcher A. Cadorna Jr.', 'rotchercadorna16@gmail.com', '2026-05-16', 'employee', '$2y$10$XU.0U2zP9DC4hZxunK2DEudsHc0SXOo3apYxlEEOPSH3IzJZBHJUi', 1, NULL, '2026-04-20 01:09:52', '2026-04-20 01:15:06');
+(10, 'SO-004', 'Rotcher A. Cadorna Jr.', 'rotchercadorna16@gmail.com', '2026-01-08', 'security_operation', '$2y$10$I4/maCo4MgQfxWFVJTb5uu6W4jV2dClAMW3eG7lojHyasCIxIz1Ci', 0, '2026-04-20 23:57:44', '2026-03-18 05:28:29', '2026-04-20 23:57:44'),
+(11, 'EMP-003', 'Rotcher A. Cadorna Jr.', 'rotchercadorna16@gmail.com', '2026-05-16', 'employee', '$2y$10$XU.0U2zP9DC4hZxunK2DEudsHc0SXOo3apYxlEEOPSH3IzJZBHJUi', 0, '2026-04-20 23:50:54', '2026-04-20 01:09:52', '2026-04-20 23:50:54');
 
 --
 -- Indexes for dumped tables
