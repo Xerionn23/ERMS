@@ -27,9 +27,24 @@ REM Find Composer
 set "COMPOSER_EXE=composer"
 where composer >nul 2>nul
 if errorlevel 1 (
-  echo [ERROR] Composer not found in PATH.
-  echo Install Composer for Windows: https://getcomposer.org/download/
-  exit /b 1
+  REM Portable fallback: composer.phar in project root
+  if exist "%ROOT%composer.phar" (
+    set "COMPOSER_EXE=%PHP_EXE% "%ROOT%composer.phar""
+    echo [INFO] Composer not installed; using portable composer.phar
+  ) else (
+    echo [WARN] Composer not found in PATH.
+    echo.
+    echo Offline / No-Install option:
+    echo - Copy the whole vendor\ folder from a working ERMS installation to:
+    echo   %ROOT%vendor\
+    echo - After copying, this file must exist:
+    echo   %ROOT%vendor\autoload.php
+    echo.
+    echo If you have internet, easiest options are:
+    echo - Install Composer for Windows: https://getcomposer.org/download/
+    echo - OR download composer.phar into %ROOT% then re-run this script.
+    exit /b 1
+  )
 )
 
 REM Basic checks
