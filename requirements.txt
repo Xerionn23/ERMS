@@ -1,0 +1,35 @@
+ERMS (Windows / XAMPP / PHP) — Install Commands
+
+IMPORTANT:
+- This is NOT a Python project. `pip install -r requirements.txt` will NOT install ERMS.
+- Use XAMPP + Composer.
+
+1) Install XAMPP
+- Install XAMPP (Apache + MySQL + PHP 8.x recommended)
+- Start Apache + MySQL in XAMPP Control Panel
+
+2) Enable required PHP extensions (XAMPP php.ini)
+- Enable: zip, gd
+- Recommended: exif, mbstring
+
+3) Copy project to XAMPP
+- Copy folder to: C:\xampp\htdocs\ERMS\
+
+4) Install PHP dependencies (Composer)
+Run in: C:\xampp\htdocs\ERMS\
+
+composer install
+
+5) Setup database (phpMyAdmin)
+- Create/import DB: `erms`
+- Import: database/schema.sql
+
+6) Ensure Apache can write to these folders/files
+- export_nuero\
+- uploads\
+- storage\
+- auth\*.txt (series_code.txt, drug_time.txt, etc.)
+
+7) Test
+- Open: http://localhost/ERMS/login.php
+- Try Generate DOCX (Neuro + Drug Test with photo)

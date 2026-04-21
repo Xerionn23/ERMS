@@ -1286,48 +1286,24 @@ foreach ($required as $key) {
 
 $drugPhotoExt = '';
 if ($needDrugPhoto) {
-    if (!isset($_FILES['drug_photo']) || !is_array($_FILES['drug_photo'])) {
-        http_response_code(400);
-        echo 'Missing required field: drug_photo';
-        exit;
-    }
-
-    $drugPhotoErr = (int)($_FILES['drug_photo']['error'] ?? UPLOAD_ERR_NO_FILE);
-    if ($drugPhotoErr !== UPLOAD_ERR_OK) {
-        http_response_code(400);
-        echo 'Drug Test photo upload failed: ' . upload_error_text($drugPhotoErr);
-        exit;
-    }
-
-    $drugPhotoTmp = (string)($_FILES['drug_photo']['tmp_name'] ?? '');
-    if ($drugPhotoTmp === '' || !is_uploaded_file($drugPhotoTmp)) {
-        http_response_code(400);
-        echo 'Drug Test photo upload failed: invalid upload.';
-        exit;
-    }
-
-    $drugPhotoSize = (int)($_FILES['drug_photo']['size'] ?? 0);
-    if ($drugPhotoSize <= 0) {
-        http_response_code(400);
-        echo 'Drug Test photo upload failed: empty file.';
-        exit;
-    }
-    if ($drugPhotoSize > 8 * 1024 * 1024) {
-        http_response_code(400);
-        echo 'Drug Test photo upload failed: file too large (max 8MB).';
-        exit;
-    }
-
-    $imgInfo = @getimagesize($drugPhotoTmp);
-    $mime = (is_array($imgInfo) && isset($imgInfo['mime'])) ? strtolower((string)$imgInfo['mime']) : '';
-    if ($mime === 'image/jpeg' || $mime === 'image/jpg') {
-        $drugPhotoExt = 'jpg';
-    } elseif ($mime === 'image/png') {
-        $drugPhotoExt = 'png';
-    } else {
-        http_response_code(400);
-        echo 'Drug Test photo upload failed: only JPG/PNG images are supported.';
-        exit;
+    $drugPhotoExt = '';
+    if (isset($_FILES['drug_photo']) && is_array($_FILES['drug_photo'])) {
+        $drugPhotoErr = (int)($_FILES['drug_photo']['error'] ?? UPLOAD_ERR_NO_FILE);
+        if ($drugPhotoErr === UPLOAD_ERR_OK) {
+            $drugPhotoTmp = (string)($_FILES['drug_photo']['tmp_name'] ?? '');
+            if ($drugPhotoTmp !== '' && is_uploaded_file($drugPhotoTmp)) {
+                $drugPhotoSize = (int)($_FILES['drug_photo']['size'] ?? 0);
+                if ($drugPhotoSize > 0 && $drugPhotoSize <= 8 * 1024 * 1024) {
+                    $imgInfo = @getimagesize($drugPhotoTmp);
+                    $mime = (is_array($imgInfo) && isset($imgInfo['mime'])) ? strtolower((string)$imgInfo['mime']) : '';
+                    if ($mime === 'image/jpeg' || $mime === 'image/jpg') {
+                        $drugPhotoExt = 'jpg';
+                    } elseif ($mime === 'image/png') {
+                        $drugPhotoExt = 'png';
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1951,9 +1927,9 @@ try {
         }
     }
 
-    $drugPhotoImage = null;
+$drugPhotoImage = null;
     $drugTemplatePrepared = null;
-    if ($needDrug) {
+    if ($needDrug && $drugPhotoExt !== '') {
         [$drugTemplatePrepared, $frameWpx, $frameHpx, $frameAspect] = prepare_drug_photo_frame_from_template($drugTemplatePath);
         register_shutdown_function(static function () use ($drugTemplatePrepared) {
             if (is_string($drugTemplatePrepared) && $drugTemplatePrepared !== '' && is_file($drugTemplatePrepared)) {

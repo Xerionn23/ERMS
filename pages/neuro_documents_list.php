@@ -449,7 +449,27 @@ try {
                                                             <?php echo htmlspecialchars($fileName, ENT_QUOTES, 'UTF-8'); ?>
                                                         </td>
                                                         <td style="padding:12px 14px;text-align:right;">
-                                                            <a class="btn btn-s sm" href="<?php echo htmlspecialchars($downloadUrl, ENT_QUOTES, 'UTF-8'); ?>">Download</a>
+                                                            <a class="btn btn-s sm" href="<?php echo htmlspecialchars($downloadUrl, ENT_QUOTES, 'UTF-8'); ?>">Download DOCX</a>
+                                                            <?php
+                                                            // Check for drug test photo
+                                                            if ($doc['type'] === 'drug_test') {
+                                                                $photoDir = $exportBase . '/' . $folder . '/drug_photos/';
+                                                                $fittedPhotoDir = $exportBase . '/' . $folder . '/drug_photos_fitted/';
+                                                                $photoFiles = [];
+                                                                if (is_dir($photoDir)) {
+                                                                    $photoFiles = glob($photoDir . '*.{jpg,jpeg,png}', GLOB_BRACE);
+                                                                }
+                                                                if (empty($photoFiles) && is_dir($fittedPhotoDir)) {
+                                                                    $photoFiles = glob($fittedPhotoDir . '*.jpg');
+                                                                }
+                                                                if (!empty($photoFiles)) {
+                                                                    $photoFile = basename($photoFiles[0]); // Use first photo
+                                                                    $photoSub = strpos($photoFile, 'drug-photo-fitted-') === 0 ? 'drug_photos_fitted' : 'drug_photos';
+                                                                    $photoDownloadUrl = '../auth/download_photo.php?folder=' . rawurlencode($folder) . '&sub=' . $photoSub . '&file=' . rawurlencode($photoFile);
+                                                                    echo ' <a class="btn btn-s sm" href="' . htmlspecialchars($photoDownloadUrl, ENT_QUOTES, 'UTF-8') . '" title="Download uploaded photo">Photo</a>';
+                                                                }
+                                                            }
+                                                            ?>
                                                         </td>
                                                     </tr>
                                                 <?php endforeach; ?>

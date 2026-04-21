@@ -75,6 +75,13 @@ The web server must be able to write to these folders:
 - `storage/`
 - `export_nuero/` (if used)
 
+Also make sure Apache can write to these counter files (used during document generation):
+- `auth/series_code.txt`
+- `auth/drug_batch.txt`
+- `auth/drug_series_code.txt`
+- `auth/drug_seq.txt`
+- `auth/drug_time.txt`
+
 If you get “permission denied” errors:
 - Right click the folder → Properties → Security → grant **Modify** to the account running Apache.
   - Note: if Apache is installed as a Windows Service, it may run under **Local System**.
@@ -258,6 +265,23 @@ Test-NetConnection 192.168.254.134 -Port 80
 
 - **Works via IP but not via ERMS-SERVER / erms-server name**
    - This is a **name/DNS/hosts file** issue (not Apache)
+
+- **Site runs but “Generate DOCX” fails**
+   - Make sure these files exist (they must be copied to the new server):
+      - `vendor/`
+      - `TEMPLATE.docx`
+      - `TEMPLATE_DRUG_TEST.docx`
+   - If `vendor/` is missing on the new PC:
+
+```bash
+cd C:\xampp\htdocs\ERMS
+composer install
+```
+
+   - Check PHP extensions in XAMPP `php.ini`:
+      - Enable `zip` (ZipArchive) and `gd`
+   - Check folder permissions:
+      - `export_nuero/` must be writable by Apache
    - Use: `http://<SERVER_IP>/ERMS/` or set Router DNS / Windows `hosts` file
 
 - **Can’t ping the server IP**

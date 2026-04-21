@@ -241,7 +241,7 @@ function fetch_batch_records_from_db(PDO $pdo, string $company, string $batch, ?
 {
     $sql =
         'SELECT '
-        . 'folder_name, document_type, '
+        . 'id, folder_name, document_type, '
         . 'COALESCE(document_date, DATE(created_at)) AS document_date, '
         . 'first_name, middle_name, last_name, full_name, home_address, agency, detachment, '
         . 'birth_date, gender, created_at '
@@ -271,6 +271,7 @@ function fetch_batch_records_from_db(PDO $pdo, string $company, string $batch, ?
     $rows = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) {
         $rows[] = [
+            'id' => (int)($r['id'] ?? 0),
             'folder_name' => (string)($r['folder_name'] ?? ''),
             'document_type' => (string)($r['document_type'] ?? ''),
             'document_date' => (string)($r['document_date'] ?? ''),
@@ -705,6 +706,15 @@ try {
 header('X-ERMS-Attendance-Source: ' . ($usedDb ? 'db' : 'legacy'));
 header('X-ERMS-Attendance-Version: 2026-04-20-1');
 
+// CSRF token for inline edit/delete actions.
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+}
+if (!isset($_SESSION['csrf_attendance']) || !is_string($_SESSION['csrf_attendance']) || $_SESSION['csrf_attendance'] === '') {
+    $_SESSION['csrf_attendance'] = bin2hex(random_bytes(16));
+}
+$csrfAttendance = (string)$_SESSION['csrf_attendance'];
+
 if (!$usedDb) {
     $allRecords = read_attendance_meta_files($exportBase);
 }
@@ -807,6 +817,12 @@ function h(?string $v): string
         .bm-col-batch{min-width:200px;}
         .bm-link{color:var(--navy-700);font-weight:600;text-decoration:none;}
         .bm-link:hover{text-decoration:underline;}
+        .bm-col-actions{width:170px;}
+        .bm-tbl-input{height:34px;padding:8px 10px;font-size:13px;min-width:120px;}
+        .bm-tbl-input.mi{min-width:60px;width:70px;}
+        .bm-tbl-input.gender{min-width:90px;width:100px;}
+        .bm-tbl-input.birth{min-width:130px;width:140px;}
+        .bm-actions-cell{white-space:nowrap;text-align:right;}
         @media(max-width:860px){
             .bm-toolbar{gap:10px;}
             .bm-toolbar .bm-left{grid-template-columns:1fr;}
@@ -949,26 +965,41 @@ function h(?string $v): string
                                                 <th class="bm-col-age">Age</th>
                                                 <th class="bm-col-agency">Agency</th>
                                                 <th>Detachment</th>
+                                                <?php if ($role === 'admin' && $usedDb): ?>
+                                                    <th class="bm-col-actions" style="text-align:right;">Actions</th>
+                                                <?php endif; ?>
                                             </tr>
                                         </thead>
                                         <tbody>
                                             <?php if (!$rows): ?>
                                                 <tr>
-                                                    <td colspan="9" class="bm-muted" style="padding:16px;">No attendance records found for this batch.</td>
+                                                    <td colspan="<?php echo ($role === 'admin' && $usedDb) ? '10' : '9'; ?>" class="bm-muted" style="padding:16px;">No attendance records found for this batch.</td>
                                                 </tr>
                                             <?php else: ?>
                                                 <?php foreach ($rows as $idx => $row): ?>
                                                     <?php $age = compute_age($row['age'] ?? '', $row['birth_date_raw'] ?? '', $row['birth_date'] ?? ''); ?>
-                                                    <tr>
-                                                        <td class="bm-num"><?php echo (int)$idx + 1; ?></td>
-                                                        <td><?php echo h($row['last_name'] ?? ''); ?></td>
-                                                        <td><?php echo h($row['first_name'] ?? ''); ?></td>
-                                                        <td><?php echo h($row['middle_name'] ?? ''); ?></td>
-                                                        <td><?php echo h($row['gender'] ?? ''); ?></td>
-                                                        <td><?php echo h($row['birth_date'] ?? ''); ?></td>
-                                                        <td class="bm-num"><?php echo h($age); ?></td>
-                                                        <td><?php echo h($row['agency'] ?? ''); ?></td>
-                                                        <td><?php echo h($row['detachment'] ?? ''); ?></td>
+                                                    <tr <?php echo ($usedDb && !empty($row['id'])) ? 'data-attendance-id="' . (int)$row['id'] . '"' : ''; ?>>
+                                                        <td class="bm-num" data-field="no"><?php echo (int)$idx + 1; ?></td>
+                                                        <td data-field="last_name"><?php echo h($row['last_name'] ?? ''); ?></td>
+                                                        <td data-field="first_name"><?php echo h($row['first_name'] ?? ''); ?></td>
+                                                        <td data-field="middle_name"><?php echo h($row['middle_name'] ?? ''); ?></td>
+                                                        <td data-field="gender"><?php echo h($row['gender'] ?? ''); ?></td>
+                                                        <td data-field="birth_date"><?php echo h($row['birth_date'] ?? ''); ?></td>
+                                                        <td class="bm-num" data-field="age"><?php echo h($age); ?></td>
+                                                        <td data-field="agency"><?php echo h($row['agency'] ?? ''); ?></td>
+                                                        <td data-field="detachment"><?php echo h($row['detachment'] ?? ''); ?></td>
+                                                        <?php if ($role === 'admin' && $usedDb): ?>
+                                                            <td class="bm-actions-cell">
+                                                                <?php if (!empty($row['id'])): ?>
+                                                                    <button class="btn btn-s sm bm-edit" type="button">Edit</button>
+                                                                    <button class="btn btn-p sm bm-save" type="button" style="display:none;">Save</button>
+                                                                    <button class="btn btn-g sm bm-cancel" type="button" style="display:none;">Cancel</button>
+                                                                    <button class="btn btn-g sm bm-delete" type="button">Delete</button>
+                                                                <?php else: ?>
+                                                                    <span class="bm-muted">—</span>
+                                                                <?php endif; ?>
+                                                            </td>
+                                                        <?php endif; ?>
                                                     </tr>
                                                 <?php endforeach; ?>
                                             <?php endif; ?>
@@ -1076,6 +1107,243 @@ function h(?string $v): string
             document.addEventListener('keydown', function (e) {
                 if (e.key === 'Escape') {
                     closeMenu();
+                }
+            });
+        })();
+    </script>
+
+    <script>
+        (function () {
+            var table = document.querySelector('.bm-table');
+            if (!table) return;
+
+            var csrf = <?php echo json_encode($csrfAttendance, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+
+            function qs(root, sel) {
+                return root ? root.querySelector(sel) : null;
+            }
+
+            function textOf(cell) {
+                return (cell && cell.textContent ? cell.textContent : '').trim();
+            }
+
+            function computeAgeFromBirth(birthRaw) {
+                birthRaw = String(birthRaw || '').trim();
+                if (!/^\d{4}-\d{2}-\d{2}$/.test(birthRaw)) return '';
+                var parts = birthRaw.split('-');
+                var y = parseInt(parts[0], 10);
+                var m = parseInt(parts[1], 10) - 1;
+                var d = parseInt(parts[2], 10);
+                if (isNaN(y) || isNaN(m) || isNaN(d)) return '';
+                var birth = new Date(y, m, d);
+                if (isNaN(birth.getTime())) return '';
+                var today = new Date();
+                var age = today.getFullYear() - birth.getFullYear();
+                var mm = today.getMonth() - birth.getMonth();
+                if (mm < 0 || (mm === 0 && today.getDate() < birth.getDate())) {
+                    age--;
+                }
+                return age < 0 ? '' : String(age);
+            }
+
+            function setEditing(row, isEditing) {
+                row.dataset.editing = isEditing ? '1' : '';
+                var editBtn = qs(row, '.bm-edit');
+                var saveBtn = qs(row, '.bm-save');
+                var cancelBtn = qs(row, '.bm-cancel');
+                var deleteBtn = qs(row, '.bm-delete');
+                if (editBtn) editBtn.style.display = isEditing ? 'none' : '';
+                if (deleteBtn) deleteBtn.style.display = isEditing ? 'none' : '';
+                if (saveBtn) saveBtn.style.display = isEditing ? '' : 'none';
+                if (cancelBtn) cancelBtn.style.display = isEditing ? '' : 'none';
+            }
+
+            function makeInput(value, extraClass, type) {
+                var input = document.createElement('input');
+                input.className = 'bm-input bm-tbl-input' + (extraClass ? (' ' + extraClass) : '');
+                input.type = type || 'text';
+                input.value = value || '';
+                return input;
+            }
+
+            function beginEdit(row) {
+                if (!row || row.dataset.editing === '1') return;
+                var id = row.getAttribute('data-attendance-id');
+                if (!id) return;
+
+                var fields = ['last_name', 'first_name', 'middle_name', 'gender', 'birth_date', 'agency', 'detachment'];
+                fields.forEach(function (f) {
+                    var cell = qs(row, '[data-field="' + f + '"]');
+                    if (!cell) return;
+                    row.dataset['orig_' + f] = textOf(cell);
+
+                    var current = row.dataset['orig_' + f] || '';
+                    var inputType = (f === 'birth_date') ? 'date' : 'text';
+                    var cls = '';
+                    if (f === 'middle_name') cls = 'mi';
+                    if (f === 'gender') cls = 'gender';
+                    if (f === 'birth_date') cls = 'birth';
+
+                    var input = makeInput(current, cls, inputType);
+                    cell.textContent = '';
+                    cell.appendChild(input);
+                });
+
+                setEditing(row, true);
+            }
+
+            function cancelEdit(row) {
+                if (!row) return;
+                var fields = ['last_name', 'first_name', 'middle_name', 'gender', 'birth_date', 'agency', 'detachment'];
+                fields.forEach(function (f) {
+                    var cell = qs(row, '[data-field="' + f + '"]');
+                    if (!cell) return;
+                    var orig = row.dataset['orig_' + f] || '';
+                    cell.textContent = orig;
+                });
+                setEditing(row, false);
+            }
+
+            function setButtonsDisabled(row, disabled) {
+                ['.bm-edit', '.bm-save', '.bm-cancel', '.bm-delete'].forEach(function (sel) {
+                    var b = qs(row, sel);
+                    if (b) b.disabled = !!disabled;
+                });
+            }
+
+            async function saveEdit(row) {
+                if (!row) return;
+                var id = row.getAttribute('data-attendance-id');
+                if (!id) return;
+
+                function val(field) {
+                    var cell = qs(row, '[data-field="' + field + '"]');
+                    if (!cell) return '';
+                    var input = cell.querySelector('input');
+                    return input ? String(input.value || '').trim() : '';
+                }
+
+                var payload = {
+                    csrf: csrf,
+                    id: id,
+                    last_name: val('last_name'),
+                    first_name: val('first_name'),
+                    middle_name: val('middle_name'),
+                    gender: val('gender'),
+                    birth_date: val('birth_date'),
+                    agency: val('agency'),
+                    detachment: val('detachment')
+                };
+
+                if (!payload.last_name || !payload.first_name) {
+                    alert('Last Name and First Name are required.');
+                    return;
+                }
+
+                setButtonsDisabled(row, true);
+                try {
+                    var res = await fetch('../auth/update_attendance_record.php', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+                        },
+                        body: new URLSearchParams(payload).toString()
+                    });
+                    var json = null;
+                    try { json = await res.json(); } catch (e) {}
+
+                    if (!res.ok || !json || !json.ok) {
+                        var msg = (json && json.error) ? json.error : ('Save failed (' + res.status + ').');
+                        alert(msg);
+                        return;
+                    }
+
+                    var rec = json.record || {};
+                    var map = {
+                        last_name: rec.last_name || payload.last_name,
+                        first_name: rec.first_name || payload.first_name,
+                        middle_name: (typeof rec.middle_name === 'string') ? rec.middle_name : payload.middle_name,
+                        gender: (typeof rec.gender === 'string') ? rec.gender : payload.gender,
+                        birth_date: (typeof rec.birth_date === 'string') ? rec.birth_date : payload.birth_date,
+                        agency: (typeof rec.agency === 'string') ? rec.agency : payload.agency,
+                        detachment: (typeof rec.detachment === 'string') ? rec.detachment : payload.detachment
+                    };
+
+                    Object.keys(map).forEach(function (f) {
+                        var cell = qs(row, '[data-field="' + f + '"]');
+                        if (!cell) return;
+                        cell.textContent = map[f] || '';
+                        row.dataset['orig_' + f] = map[f] || '';
+                    });
+
+                    var ageCell = qs(row, '[data-field="age"]');
+                    if (ageCell) {
+                        var age = (typeof rec.age === 'string' && rec.age !== '') ? rec.age : computeAgeFromBirth(map.birth_date);
+                        ageCell.textContent = age;
+                    }
+
+                    setEditing(row, false);
+                } finally {
+                    setButtonsDisabled(row, false);
+                }
+            }
+
+            async function deleteRow(row) {
+                if (!row) return;
+                var id = row.getAttribute('data-attendance-id');
+                if (!id) return;
+                if (!confirm('Delete this record?')) return;
+
+                setButtonsDisabled(row, true);
+                try {
+                    var res = await fetch('../auth/delete_attendance_record.php', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+                        },
+                        body: new URLSearchParams({ csrf: csrf, id: id }).toString()
+                    });
+                    var json = null;
+                    try { json = await res.json(); } catch (e) {}
+
+                    if (!res.ok || !json || !json.ok) {
+                        var msg = (json && json.error) ? json.error : ('Delete failed (' + res.status + ').');
+                        alert(msg);
+                        return;
+                    }
+
+                    var tbody = row.parentNode;
+                    if (tbody) {
+                        tbody.removeChild(row);
+                    }
+
+                    // Re-number visible rows.
+                    var rows = table.querySelectorAll('tbody tr[data-attendance-id]');
+                    for (var i = 0; i < rows.length; i++) {
+                        var noCell = rows[i].querySelector('[data-field="no"]');
+                        if (noCell) {
+                            noCell.textContent = String(i + 1);
+                        }
+                    }
+                } finally {
+                    setButtonsDisabled(row, false);
+                }
+            }
+
+            table.addEventListener('click', function (e) {
+                var target = e.target;
+                if (!target) return;
+                var row = target.closest('tr');
+                if (!row) return;
+
+                if (target.classList.contains('bm-edit')) {
+                    beginEdit(row);
+                } else if (target.classList.contains('bm-cancel')) {
+                    cancelEdit(row);
+                } else if (target.classList.contains('bm-save')) {
+                    saveEdit(row);
+                } else if (target.classList.contains('bm-delete')) {
+                    deleteRow(row);
                 }
             });
         })();
