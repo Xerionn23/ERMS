@@ -37,9 +37,8 @@ $hasError = isset($_GET['error']);
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet"/>
-<script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<!-- Removed React + in-browser Babel to avoid 'import' transform errors in browser extensions.
+  The page now renders server-side HTML so it works without client-side JSX compilation. -->
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -356,315 +355,162 @@ body{
   <div class="bg-shape bg-s3"></div>
 </div>
 
-<div id="root"></div>
-
-<script>
-  window.__ERMS_LOGIN__ = { hasError: <?php echo $hasError ? 'true' : 'false'; ?> };
-</script>
-
-<script type="text/babel">
-const {useState,useEffect}=React;
-
-const IcShield=()=><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>;
-const IcEye=()=><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>;
-const IcEyeOff=()=><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>;
-const IcArrow=()=><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>;
-const IcAlert=()=><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>;
-const IcCheck=()=><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>;
-const IcLock=()=><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>;
-const IcUsers=()=><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>;
-const IcActivity=()=><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>;
-const IcDoc=()=><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M7 3h10"/><path d="M7 7h10"/><path d="M7 11h10"/><path d="M7 15h7"/><path d="M6 3h-1a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-1"/></svg>;
-const IcCalendar=()=><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4"/><path d="M8 2v4"/><path d="M3 10h18"/></svg>;
-const IcReport=()=><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v18h18"/><path d="M7 14l3-3 3 3 5-7"/></svg>;
-
-function LoginPage(){
-  const [id,setId]=useState('');
-  const [pw,setPw]=useState('');
-  const [showPw,setShowPw]=useState(false);
-  const [error,setError]=useState((window.__ERMS_LOGIN__&&window.__ERMS_LOGIN__.hasError)?'Invalid username or password. Please try again.':'');
-  const [view,setView]=useState('login');
-  const [setupId,setSetupId]=useState('');
-  const [setupMode,setSetupMode]=useState('create');
-  const [setupState,setSetupState]=useState({sending:false,type:'',msg:''});
-  const [cooldown,setCooldown]=useState(0);
-
-  useEffect(()=>{
-    if(cooldown<=0)return;
-    const t=setTimeout(()=>setCooldown(v=>Math.max(0,v-1)),1000);
-    return()=>clearTimeout(t);
-  },[cooldown]);
-
-  const sendSetup=async()=>{
-    if(!setupId.trim()){
-      setSetupState({sending:false,type:'err',msg:'Please enter your User ID.'});
-      return;
-    }
-    setSetupState({sending:true,type:'',msg:''});
-    try{
-      const fd=new FormData();
-      fd.append('employee_id',setupId.trim());
-      fd.append('intent',setupMode==='reset'?'reset':'create');
-      const r=await fetch('../auth/request_account_setup.php',{method:'POST',body:fd,credentials:'same-origin'});
-      const j=await r.json().catch(()=>null);
-      if(!r.ok||!j||j.ok!==true){
-        if(r&&r.status===429){
-          setCooldown(15);
-        }
-        throw new Error((j&&j.error)?j.error:'Request failed.');
-      }
-      setSetupState({sending:false,type:'ok',msg:String(j.message||'Setup link sent. Please check your email.')});
-      setCooldown(15);
-    }catch(e){
-      setSetupState({sending:false,type:'err',msg:String(e&&e.message?e.message:e)});
-    }
-  };
-
-  return(
-    <div className="shell">
-      {/* LEFT PANEL */}
-      <div className="left">
-        <div className="brand">
-          <div className="brand-logos">
-            <div className="brand-logo">
-              <img src="../assets/img/brainmaster.jpg" alt="Brain Master" />
-            </div>
-            <div className="brand-logo">
-              <img src="../assets/img/erms-logo.svg" alt="ERMS" />
-            </div>
-          </div>
-          <div>
-            <div className="brand-name">ERMS</div>
-            <div className="brand-tag">Brain Master Diagnostic Center</div>
-          </div>
+<!-- Server-rendered login UI (replaces client-side React rendering). -->
+<div class="shell">
+  <div class="left">
+    <div class="brand">
+      <div class="brand-logos">
+        <div class="brand-logo">
+          <img src="../assets/img/brainmaster.jpg" alt="Brain Master" />
         </div>
-
-        <div className="hero-label">
-          <div className="hero-dot"></div>
-          SECURE ACCESS
-        </div>
-
-        <h1 className="hero-title">
-          Efficient resource management<br/>
-          for <span>diagnostic workflows.</span>
-        </h1>
-        <p className="hero-sub">
-          Manage neuro and drug test documents, track attendance by batch, and prepare reports with a clear, secure workflow.
-        </p>
-
-        <div className="feature-list">
-          {[
-            {icon:<IcDoc/>,text:<><strong>Document flow</strong> with consistent templates and validation</>},
-            {icon:<IcCalendar/>,text:<><strong>Attendance batches</strong> organized by folder and date</>},
-            {icon:<IcReport/>,text:<><strong>Reports ready</strong> for printing and compliance needs</>},
-          ].map((f,i)=>(
-            <div className="feat" key={i}>
-              <div className="feat-ico">{f.icon}</div>
-              <div className="feat-text">{f.text}</div>
-            </div>
-          ))}
-        </div>
-
-        <div className="preview">
-          <div className="preview-head">
-            <div className="preview-title">Operational snapshot</div>
-            <div className="preview-tag">Today</div>
-          </div>
-          <div className="preview-grid">
-            <div className="preview-item">
-              <div className="preview-label">Documents</div>
-              <div className="preview-value">Neuro and drug test</div>
-            </div>
-            <div className="preview-item">
-              <div className="preview-label">Attendance</div>
-              <div className="preview-value">Batch review ready</div>
-            </div>
-            <div className="preview-item">
-              <div className="preview-label">Reports</div>
-              <div className="preview-value">Export and print</div>
-            </div>
-            <div className="preview-item">
-              <div className="preview-label">Security</div>
-              <div className="preview-value">Role-based access</div>
-            </div>
-          </div>
+        <div class="brand-logo">
+          <img src="../assets/img/erms-logo.svg" alt="ERMS" />
         </div>
       </div>
+      <div>
+        <div class="brand-name">ERMS</div>
+        <div class="brand-tag">Brain Master Diagnostic Center</div>
+      </div>
+    </div>
 
-      {/* DIVIDER */}
-      <div className="divider"/>
+    <div class="hero-label">
+      <div class="hero-dot"></div>
+      SECURE ACCESS
+    </div>
 
-      {/* RIGHT PANEL */}
-      <div className="right">
-        <div className="card">
-          <div className="card-hd">
-            <div className="card-logo">
-              <img src="../assets/img/erms-logo.svg" alt="ERMS" />
-            </div>
-            <div className="card-title">
-              {view==='login' ? 'Welcome back' : (setupMode==='reset' ? 'Reset password' : 'Create account')}
-            </div>
-            <div className="card-sub">
-              {view==='login'
-                ? 'Brain Master Diagnostic Center'
-                : (setupMode==='reset'
-                  ? 'We will send a secure reset link to your Gmail'
-                  : 'We will send a secure setup link to your Gmail')
-              }
-            </div>
-            <div className="card-pill">SECURE ACCESS</div>
-          </div>
+    <h1 class="hero-title">
+      Efficient resource management<br/>
+      for <span>diagnostic workflows.</span>
+    </h1>
+    <p class="hero-sub">
+      Manage neuro and drug test documents, track attendance by batch, and prepare reports with a clear, secure workflow.
+    </p>
 
-          {view==='login' ? (
-          <form className="form" method="post" action="../auth/authenticate.php">
-            {error&&(
-              <div className="err-msg">
-                <IcAlert/>
-                {error}
-              </div>
-            )}
+    <div class="feature-list">
+      <div class="feat">
+        <div class="feat-ico"></div>
+        <div class="feat-text"><strong>Document flow</strong> with consistent templates and validation</div>
+      </div>
+      <div class="feat">
+        <div class="feat-ico"></div>
+        <div class="feat-text"><strong>Attendance batches</strong> organized by folder and date</div>
+      </div>
+      <div class="feat">
+        <div class="feat-ico"></div>
+        <div class="feat-text"><strong>Reports ready</strong> for printing and compliance needs</div>
+      </div>
+    </div>
 
-            <div className="fgrp">
-              <label className="fl">Employee ID</label>
-              <div className="inp-wrap">
-                <input
-                  className={`inp inp-mono${error&&!id?' err':''}`}
-                  placeholder="e.g. 2024-0001"
-                  name="username"
-                  value={id}
-                  onChange={e=>{setId(e.target.value);if(error)setError('');}}
-                  autoComplete="username"
-                  spellCheck={false}
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="fgrp">
-              <label className="fl">Password</label>
-              <div className="inp-wrap">
-                <input
-                  className={`inp${error&&!pw?' err':''}`}
-                  type={showPw?'text':'password'}
-                  placeholder="Your ERMS password"
-                  name="password"
-                  value={pw}
-                  onChange={e=>{setPw(e.target.value);if(error)setError('');}}
-                  autoComplete="current-password"
-                  style={{paddingRight:48}}
-                  required
-                />
-                <button
-                  className="pw-toggle"
-                  onClick={()=>setShowPw(v=>!v)}
-                  type="button"
-                  aria-label={showPw?'Hide password':'Show password'}
-                >
-                  {showPw?<IcEye/>:<IcEyeOff/>}
-                </button>
-              </div>
-              <div className="helper-row">
-                <a
-                  className="forgot-link"
-                  href="#"
-                  onClick={e=>{e.preventDefault();setView('setup');setSetupMode('reset');setSetupId('');setSetupState({sending:false,type:'',msg:''});}}
-                >
-                  Forgot password?
-                </a>
-              </div>
-            </div>
-
-            <div className="remember-row">
-              <label className="cb-wrap">
-                <input type="checkbox" name="remember" />
-                <span className="cb-lbl">Remember me</span>
-              </label>
-            </div>
-
-            <button className="btn-signin" type="submit">
-              Sign in <IcArrow/>
-            </button>
-          </form>
-          ) : (
-          <div className="form">
-            {setupState.msg&&(
-              <div className={setupState.type==='ok'?'ok-msg':'err-msg'}>
-                {setupState.type==='ok'?<IcCheck/>:<IcAlert/>}
-                {setupState.msg}
-              </div>
-            )}
-
-            {(!setupState.msg || setupState.type!=='ok')&&(
-              <div className="card-footer" style={{marginTop:0}}>
-                <IcUsers/>
-                {setupMode==='reset'
-                  ? 'Enter your User ID. We will send a secure reset link to your Gmail on file.'
-                  : 'Enter your User ID. We will send a secure setup link to your Gmail on file.'
-                }
-              </div>
-            )}
-
-            <div className="fgrp">
-              <label className="fl">User ID</label>
-              <div className="inp-wrap">
-                <input
-                  className="inp inp-mono"
-                  placeholder="e.g. 2024-0001"
-                  value={setupId}
-                  onChange={e=>{setSetupId(e.target.value);}}
-                  autoComplete="username"
-                  spellCheck={false}
-                  disabled={setupState.sending}
-                  required
-                />
-              </div>
-            </div>
-
-            <button className="btn-signin" type="button" onClick={sendSetup} disabled={setupState.sending||cooldown>0}>
-              {setupState.sending
-                ?(<><span className="spinner"/> Sending…</>)
-                :(cooldown>0
-                  ?(<>Resend in {cooldown}s</>)
-                  :(<>Send setup link <IcArrow/></>)
-                )
-              }
-            </button>
-
-            {cooldown>0&&(
-              <div className="card-footer" style={{marginTop:8}}>
-                <IcLock/>
-                Please wait before requesting another email.
-              </div>
-            )}
-          </div>
-          )}
-
-          <div className="card-footer" style={{marginTop:14}}>
-            {view==='login' ? (
-              <>
-                <span style={{color:'var(--gray-400)'}}>New here?</span>
-                <a href="#" onClick={e=>{e.preventDefault();setView('setup');setSetupMode('create');setSetupId('');setSetupState({sending:false,type:'',msg:''});}} style={{color:'var(--navy-600)',textDecoration:'none',fontWeight:700}}>Create account</a>
-              </>
-            ) : (
-              <>
-                <a href="#" onClick={e=>{e.preventDefault();setView('login');setSetupId('');setSetupState({sending:false,type:'',msg:''});}} style={{color:'var(--navy-600)',textDecoration:'none',fontWeight:700}}>Back to sign in</a>
-              </>
-            )}
-          </div>
-
-          {view==='login'&&(
-            <div className="card-footer">
-              <IcLock/>
-              Encrypted login. Authorized staff only.
-            </div>
-          )}
+    <div class="preview">
+      <div class="preview-head">
+        <div class="preview-title">Operational snapshot</div>
+        <div class="preview-tag">Today</div>
+      </div>
+      <div class="preview-grid">
+        <div class="preview-item">
+          <div class="preview-label">Documents</div>
+          <div class="preview-value">Neuro and drug test</div>
+        </div>
+        <div class="preview-item">
+          <div class="preview-label">Attendance</div>
+          <div class="preview-value">Batch review ready</div>
+        </div>
+        <div class="preview-item">
+          <div class="preview-label">Reports</div>
+          <div class="preview-value">Export and print</div>
+        </div>
+        <div class="preview-item">
+          <div class="preview-label">Security</div>
+          <div class="preview-value">Role-based access</div>
         </div>
       </div>
     </div>
-  );
-}
+  </div>
 
-ReactDOM.createRoot(document.getElementById('root')).render(<LoginPage/>);
+  <div class="divider"></div>
+
+  <div class="right">
+    <div class="card">
+      <div class="card-hd">
+        <div class="card-logo">
+          <img src="../assets/img/erms-logo.svg" alt="ERMS" />
+        </div>
+        <div class="card-title">Welcome back</div>
+        <div class="card-sub">Brain Master Diagnostic Center</div>
+        <div class="card-pill">SECURE ACCESS</div>
+      </div>
+
+      <form class="form" method="post" action="../auth/authenticate.php">
+        <?php if ($hasError): ?>
+          <div class="err-msg">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:6px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            Invalid username or password. Please try again.
+          </div>
+        <?php endif; ?>
+
+        <div class="fgrp">
+          <label class="fl">Employee ID</label>
+          <div class="inp-wrap">
+            <input class="inp inp-mono" placeholder="e.g. 2024-0001" name="username" autocomplete="username" spellcheck="false" required />
+          </div>
+        </div>
+
+        <div class="fgrp">
+          <label class="fl">Password</label>
+          <div class="inp-wrap">
+            <input class="inp" type="password" placeholder="Your ERMS password" name="password" autocomplete="current-password" style="padding-right:48px" required />
+            <button class="pw-toggle" type="button" aria-label="Show password">Show</button>
+          </div>
+          <div class="helper-row">
+            <a class="forgot-link" href="../auth/request_account_setup.php">Forgot password?</a>
+          </div>
+        </div>
+
+        <div class="remember-row">
+          <label class="cb-wrap">
+            <input type="checkbox" name="remember" />
+            <span class="cb-lbl">Remember me</span>
+          </label>
+        </div>
+
+        <button class="btn-signin" type="submit">Sign in</button>
+      </form>
+
+      <div class="card-footer" style="margin-top:14px">
+        <span style="color:var(--gray-400)">New here?</span>
+        <a href="#" onclick="document.querySelector('form').action='../auth/request_account_setup.php';return false;" style="color:var(--navy-600);text-decoration:none;font-weight:700;margin-left:8px">Create account</a>
+      </div>
+
+      <div class="card-footer" style="margin-top:8px">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:12px;height:12px;margin-right:6px"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Encrypted login. Authorized staff only.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Minimal password toggle behavior
+document.addEventListener('DOMContentLoaded', function(){
+  var pwToggle = document.querySelector('.pw-toggle');
+  var pwInput = document.querySelector('input[name="password"]');
+  if(pwToggle && pwInput){
+    pwToggle.addEventListener('click', function(e){
+      e.preventDefault();
+      if(pwInput.type === 'password'){
+        pwInput.type = 'text';
+        pwToggle.textContent = 'Hide';
+        pwToggle.setAttribute('aria-label','Hide password');
+      } else {
+        pwInput.type = 'password';
+        pwToggle.textContent = 'Show';
+        pwToggle.setAttribute('aria-label','Show password');
+      }
+    });
+  }
+});
 </script>
+</body>
+</html>
 </body>
 </html>

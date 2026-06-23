@@ -1,0 +1,39 @@
+INSTALLATION GUIDE
+Required Tools
+Download and install the latest version of XAMPP
+Required Files
+ERMS System Files (make sure they are already copied)
+Setup Instructions
+Ensure that XAMPP is successfully installed on your computer.
+Make sure the ERMS files are properly copied into the htdocs folder inside the XAMPP directory.
+Follow these steps:
+Open XAMPP as Administrator
+Start Apache and MySQL
+Click Config beside Apache
+Select PHP (php.ini)
+Open it using Notepad
+
+Find this line:
+
+;extension=zip
+
+Remove the semicolon (;) so it becomes:
+
+extension=zip
+Save the file
+Restart Apache after saving changes
+Accessing the System
+
+Open your browser and go to:
+
+http://localhost/ERMS/pages/login.php
+Optional (Create Desktop Shortcut)
+
+Using Microsoft Edge:
+
+Click the 3 dots (menu)
+Go to Apps
+Click Install this site as an app
+Create a desktop shortcut
+
+Done.

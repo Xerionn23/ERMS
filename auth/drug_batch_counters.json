@@ -1,0 +1,25 @@
+{
+    "version": 1,
+    "batches": {
+        "SILVER POINT124": {
+            "code_next": "AB",
+            "seq_next": 2,
+            "updated_at": "2026-04-22T15:05:42+08:00"
+        },
+        "ASDADSA": {
+            "code_next": "AC",
+            "seq_next": 3,
+            "updated_at": "2026-04-22T15:12:45+08:00"
+        },
+        "shore 1": {
+            "code_next": "AB",
+            "seq_next": 2,
+            "updated_at": "2026-04-22T16:04:37+08:00"
+        },
+        "BATT": {
+            "code_next": "AB",
+            "seq_next": 2,
+            "updated_at": "2026-05-31T12:47:40+08:00"
+        }
+    }
+}

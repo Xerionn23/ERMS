@@ -173,20 +173,30 @@ function next_series_code(): string
 {
     $file = __DIR__ . '/series_code.txt';
     $cur = 'AA';
-    if (is_file($file)) {
-        $v = trim((string)@file_get_contents($file));
-        if (preg_match('/^[A-Z]{2}$/', $v)) {
-            $cur = $v;
+    $fp = @fopen($file, 'c+');
+    if ($fp) {
+        if (@flock($fp, LOCK_EX)) {
+            @rewind($fp);
+            $v = trim((string)stream_get_contents($fp));
+            if (preg_match('/^[A-Z]{2}$/', $v)) {
+                $cur = $v;
+            }
+
+            $a = ord($cur[0]) - 65;
+            $b = ord($cur[1]) - 65;
+            $n = $a * 26 + $b;
+            $n2 = ($n + 1) % (26 * 26);
+            $next = chr(65 + intdiv($n2, 26)) . chr(65 + ($n2 % 26));
+
+            @ftruncate($fp, 0);
+            @rewind($fp);
+            @fwrite($fp, $next);
+            @fflush($fp);
+            @flock($fp, LOCK_UN);
         }
+        @fclose($fp);
     }
 
-    $a = ord($cur[0]) - 65;
-    $b = ord($cur[1]) - 65;
-    $n = $a * 26 + $b;
-    $n2 = ($n + 1) % (26 * 26);
-    $next = chr(65 + intdiv($n2, 26)) . chr(65 + ($n2 % 26));
-
-    @file_put_contents($file, $next);
     return $cur;
 }
 
@@ -197,46 +207,120 @@ function next_series_code(): string
 function next_drug_batch_counters(string $batchKey): array
 {
     $batchKey = trim($batchKey);
+
     $batchFile = __DIR__ . '/drug_batch.txt';
-    $codeFile = __DIR__ . '/drug_series_code.txt';
-    $seqFile = __DIR__ . '/drug_seq.txt';
+    $legacyCodeFile = __DIR__ . '/drug_series_code.txt';
+    $legacySeqFile = __DIR__ . '/drug_seq.txt';
 
-    $lastBatch = '';
-    if (is_file($batchFile)) {
-        $lastBatch = trim((string)@file_get_contents($batchFile));
-    }
+    // Keep counters per batch key so switching folders does NOT reset back to 1.
+    // This also makes the counter concurrency-safe (first-come-first-serve).
+    $stateFile = __DIR__ . '/drug_batch_counters.json';
 
-    $reset = ($batchKey !== '' && $batchKey !== $lastBatch);
-
-    $cur = 'AA';
-    if (!$reset && is_file($codeFile)) {
-        $v = trim((string)@file_get_contents($codeFile));
-        if (preg_match('/^[A-Z]{2}$/', $v)) {
-            $cur = $v;
+    $incrementCode = static function (string $code): string {
+        $code = strtoupper(trim($code));
+        if (preg_match('/^[A-Z]{2}$/', $code) !== 1) {
+            $code = 'AA';
         }
-    }
+        $a = ord($code[0]) - 65;
+        $b = ord($code[1]) - 65;
+        $n = $a * 26 + $b;
+        $n2 = ($n + 1) % (26 * 26);
+        return chr(65 + intdiv($n2, 26)) . chr(65 + ($n2 % 26));
+    };
 
-    $a = ord($cur[0]) - 65;
-    $b = ord($cur[1]) - 65;
-    $n = $a * 26 + $b;
-    $n2 = ($n + 1) % (26 * 26);
-    $next = chr(65 + intdiv($n2, 26)) . chr(65 + ($n2 % 26));
+    $issuedCode = 'AA';
+    $issuedSeq = 1;
 
-    $seq = 1;
-    if (!$reset && is_file($seqFile)) {
-        $seq = (int)trim((string)@file_get_contents($seqFile));
-        if ($seq < 1) {
-            $seq = 1;
+    $fp = @fopen($stateFile, 'c+');
+    if ($fp && @flock($fp, LOCK_EX)) {
+        @rewind($fp);
+        $raw = (string)stream_get_contents($fp);
+        $state = json_decode($raw, true);
+        if (!is_array($state)) {
+            $state = [];
         }
+
+        if (!isset($state['version'])) {
+            $state['version'] = 1;
+        }
+        if (!isset($state['batches']) || !is_array($state['batches'])) {
+            $state['batches'] = [];
+        }
+
+        $entry = $state['batches'][$batchKey] ?? null;
+        if (!is_array($entry)) {
+            // Best-effort migration: if the legacy files currently point at this batch,
+            // seed the initial per-batch state from them.
+            $legacyLastBatch = '';
+            if (is_file($batchFile)) {
+                $legacyLastBatch = trim((string)@file_get_contents($batchFile));
+            }
+
+            $seedCodeNext = 'AA';
+            $seedSeqNext = 1;
+            if ($batchKey !== '' && $legacyLastBatch === $batchKey) {
+                if (is_file($legacyCodeFile)) {
+                    $v = strtoupper(trim((string)@file_get_contents($legacyCodeFile)));
+                    if (preg_match('/^[A-Z]{2}$/', $v) === 1) {
+                        $seedCodeNext = $v;
+                    }
+                }
+                if (is_file($legacySeqFile)) {
+                    $v = (int)trim((string)@file_get_contents($legacySeqFile));
+                    if ($v >= 1) {
+                        $seedSeqNext = $v;
+                    }
+                }
+            }
+
+            $entry = [
+                'code_next' => $seedCodeNext,
+                'seq_next' => $seedSeqNext,
+            ];
+        }
+
+        $codeNext = strtoupper(trim((string)($entry['code_next'] ?? 'AA')));
+        if (preg_match('/^[A-Z]{2}$/', $codeNext) !== 1) {
+            $codeNext = 'AA';
+        }
+        $seqNext = (int)($entry['seq_next'] ?? 1);
+        if ($seqNext < 1) {
+            $seqNext = 1;
+        }
+
+        $issuedCode = $codeNext;
+        $issuedSeq = $seqNext;
+
+        $entry['code_next'] = $incrementCode($codeNext);
+        $entry['seq_next'] = $seqNext + 1;
+        $entry['updated_at'] = date('c');
+
+        $state['batches'][$batchKey] = $entry;
+
+        $json = json_encode($state, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if (!is_string($json)) {
+            $json = '{"version":1,"batches":{}}';
+        }
+
+        @ftruncate($fp, 0);
+        @rewind($fp);
+        @fwrite($fp, $json);
+        @fflush($fp);
+
+        // Update legacy files for compatibility (tracks the last-used batch only).
+        if ($batchKey !== '') {
+            @file_put_contents($batchFile, $batchKey);
+        }
+        @file_put_contents($legacyCodeFile, (string)$entry['code_next']);
+        @file_put_contents($legacySeqFile, (string)$entry['seq_next']);
+
+        @flock($fp, LOCK_UN);
+    }
+    if ($fp) {
+        @fclose($fp);
     }
 
-    @file_put_contents($codeFile, $next);
-    @file_put_contents($seqFile, (string)($seq + 1));
-    if ($batchKey !== '') {
-        @file_put_contents($batchFile, $batchKey);
-    }
-
-    return [$cur, $seq];
+    return [$issuedCode, $issuedSeq];
 }
 
 function add_seconds_to_ampm_time(string $time, int $seconds): string
@@ -371,9 +455,25 @@ function title_case_text(string $value): string
 function get_next_remark(string $sex): string
 {
     $remarksFile = __DIR__ . '/remarks_list.php';
-    $indexFile = __DIR__ . '/remarks_index.txt';
+    $defaultIndexFile = __DIR__ . '/remarks_index.txt';
 
-    $remarks = require $remarksFile;
+    $remarksData = require $remarksFile;
+    if (!is_array($remarksData) || empty($remarksData)) {
+        return '';
+    }
+
+    $sexLower = strtolower(trim($sex));
+    $useFemale = $sexLower === 'female' || $sexLower === 'f';
+
+    $useSplit = isset($remarksData['male']) || isset($remarksData['female']);
+    if ($useSplit) {
+        $remarks = $useFemale ? ($remarksData['female'] ?? []) : ($remarksData['male'] ?? []);
+        $indexFile = __DIR__ . ($useFemale ? '/remarks_index_female.txt' : '/remarks_index_male.txt');
+    } else {
+        $remarks = $remarksData;
+        $indexFile = $defaultIndexFile;
+    }
+
     if (!is_array($remarks) || empty($remarks)) {
         return '';
     }
@@ -392,9 +492,8 @@ function get_next_remark(string $sex): string
     // Update index for next person
     file_put_contents($indexFile, (string)($index + 1));
 
-    // Replace gender words based on sex
-    $sexLower = strtolower(trim($sex));
-    if ($sexLower === 'female') {
+    if (!$useSplit && $useFemale) {
+        // Replace gender words based on sex for legacy mixed lists.
         $remark = str_replace(
             [' he ', ' He ', ' his ', ' His ', ' him ', ' Him ', ' himself ', ' Himself '],
             [' she ', ' She ', ' her ', ' Her ', ' her ', ' Her ', ' herself ', ' Herself '],
@@ -409,7 +508,10 @@ function get_next_remark(string $sex): string
 function replace_docx_placeholders(string $docxPath, array $values, bool $isDrugTest = false): void
 {
     if (!class_exists('ZipArchive')) {
-        throw new RuntimeException('ZipArchive is required to post-process the DOCX file.');
+        throw new RuntimeException(
+            'ZipArchive class not found. Enable the PHP zip extension (ext-zip) in php.ini and restart Apache/PHP, then try again. '
+            . 'Tip (XAMPP): open C:\\xampp\\php\\php.ini and uncomment extension=zip. Verify with `php -m` that "zip" appears.'
+        );
     }
 
     $requiredMacros = ['{{chk_firearm}}', '{{chk_security}}', '{{chk_lto}}', '{{chk_others}}'];
@@ -1706,13 +1808,14 @@ $values = [
     'suffix' => up((string)($_POST['suffix'] ?? '')),
     'age' => norm_text($_POST['age']),
     'sex' => norm_text($_POST['sex']),
-    'civil_status' => norm_text($_POST['civil_status']),
-    'home_address' => norm_text((string)($_POST['home_address'] ?? '')),
-    'occupation' => norm_text($_POST['occupation']),
-    'position' => norm_text($_POST['position']),
-    'educational' => norm_text($_POST['educational']),
-    'religion' => norm_text($_POST['religion']),
-    'company_requesting_agency' => norm_text($_POST['company_requesting_agency']),
+    'civil_status' => title_case_text(norm_text($_POST['civil_status'])),
+    'home_address' => title_case_text(norm_text((string)($_POST['home_address'] ?? ''))),
+    'occupation' => title_case_text(norm_text($_POST['occupation'])),
+    'position' => title_case_text(norm_text($_POST['position'])),
+    'educational' => title_case_text(norm_text($_POST['educational'])),
+    'religion' => title_case_text(norm_text($_POST['religion'])),
+    'company_requesting_agency' => title_case_text(norm_text($_POST['company_requesting_agency'])),
+    'detachment' => title_case_text(norm_text((string)($_POST['detachment'] ?? ''))),
     'date_of_birth' => fmt_long_date(norm_text($_POST['date_of_birth'])),
 ];
 
@@ -1741,7 +1844,7 @@ if (trim((string)($_POST['suffix'] ?? '')) !== '') {
 $remarkText = get_next_remark($values['sex']);
 
 $purpose = norm_text((string)($_POST['purpose'] ?? ''));
-$purposeSpecify = norm_text($_POST['purpose_specify'] ?? '');
+$purposeSpecify = title_case_text(norm_text($_POST['purpose_specify'] ?? ''));
 
 $blank = ' ';
 $chkFirearm  = ($purpose === 'firearm')   ? 'X' : $blank;
@@ -1821,9 +1924,9 @@ try {
     $attLast = title_case_text(norm_text((string)($_POST['last_name'] ?? '')));
     $attMiddle = middle_initial((string)($_POST['middle_name'] ?? ''));
     $attFull = $fullNameTitle !== '' ? $fullNameTitle : trim($attLast . ', ' . $attFirst . ($attMiddle !== '' ? ' ' . $attMiddle : ''));
-    $attHome = norm_text((string)($_POST['home_address'] ?? ''));
-    $attAgency = norm_text((string)($_POST['company_requesting_agency'] ?? ''));
-    $attDetachment = norm_text((string)($_POST['detachment'] ?? ''));
+    $attHome = title_case_text(norm_text((string)($_POST['home_address'] ?? '')));
+    $attAgency = title_case_text(norm_text((string)($_POST['company_requesting_agency'] ?? '')));
+    $attDetachment = title_case_text(norm_text((string)($_POST['detachment'] ?? '')));
     $attGender = norm_text((string)($_POST['sex'] ?? ''));
     $attendanceBase = [
         'company' => $company,
@@ -1843,7 +1946,17 @@ try {
     ];
 
     $exportBase = dirname(__DIR__) . '/export_nuero';
-    $exportDir = $exportBase . '/' . $folderName;
+
+    $sexRaw = strtolower(trim((string)($values['sex'] ?? '')));
+    if ($sexRaw === 'male' || $sexRaw === 'm') {
+        $genderFolder = 'Male';
+    } elseif ($sexRaw === 'female' || $sexRaw === 'f') {
+        $genderFolder = 'Female';
+    } else {
+        $genderFolder = 'Unspecified';
+    }
+
+    $exportDir = $exportBase . '/' . $folderName . '/' . $genderFolder;
 
     $needNeuro = ($documentType === 'neuro' || $documentType === 'both');
     $needDrug = ($documentType === 'drug_test' || $documentType === 'both');
@@ -1907,7 +2020,7 @@ try {
 
     if (!is_dir($exportDir)) {
         if (!@mkdir($exportDir, 0777, true)) {
-            throw new RuntimeException('Failed to create folder: ' . $folderName);
+            throw new RuntimeException('Failed to create folder: ' . $folderName . '/' . $genderFolder);
         }
     }
 
@@ -2003,7 +2116,7 @@ $drugPhotoImage = null;
         }
 
         $filename = $fullName . ' - ' . $defaultName . '.docx';
-        $filename = preg_replace('/[^A-Za-z0-9 _.,\-()]/', '', $filename);
+        $filename = preg_replace('/[^A-Za-z0-9 _.,\-()ñÑáéíóúÁÉÍÓÚ]/', '', $filename);
         $filename = trim($filename);
         if ($filename === '' || $filename === '.docx') {
             $filename = $defaultName . '.docx';
@@ -2033,7 +2146,7 @@ $drugPhotoImage = null;
             'purpose_specify' => $purposeSpecify !== '' ? $purposeSpecify : null,
             'folder_name' => $folderName,
             'file_name' => $filename,
-            'file_path' => 'export_nuero/' . $folderName . '/' . $filename,
+            'file_path' => 'export_nuero/' . $folderName . '/' . $genderFolder . '/' . $filename,
             'created_by_user_id' => $createdByUserId,
             'created_by_employee_id' => $createdByEmployeeId,
         ]);
@@ -2061,7 +2174,7 @@ $drugPhotoImage = null;
             'purpose_specify' => $purposeSpecify !== '' ? $purposeSpecify : null,
             'folder_name' => $folderName,
             'file_name' => $filename,
-            'file_path' => 'export_nuero/' . $folderName . '/' . $filename,
+            'file_path' => 'export_nuero/' . $folderName . '/' . $genderFolder . '/' . $filename,
             'created_by_user_id' => $createdByUserId,
             'created_by_employee_id' => $createdByEmployeeId,
         ]);

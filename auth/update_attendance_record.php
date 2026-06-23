@@ -82,6 +82,7 @@ $last = $clip($sanitizeName($norm($_POST['last_name'] ?? '')), 80);
 $first = $clip($sanitizeName($norm($_POST['first_name'] ?? '')), 80);
 $middle = $clip($sanitizeName($norm($_POST['middle_name'] ?? '')), 40);
 $gender = $clip($sanitizeName($norm($_POST['gender'] ?? '')), 20);
+$homeAddress = $clip($sanitizeText($norm($_POST['home_address'] ?? '')), 200);
 $agency = $clip($sanitizeText($norm($_POST['agency'] ?? '')), 120);
 $detachment = $clip($sanitizeText($norm($_POST['detachment'] ?? '')), 120);
 $birthRaw = $norm($_POST['birth_date'] ?? '');
@@ -128,6 +129,7 @@ try {
         . 'middle_name = :middle_name, '
         . 'last_name = :last_name, '
         . 'full_name = :full_name, '
+        . 'home_address = :home_address, '
         . 'agency = :agency, '
         . 'detachment = :detachment, '
         . 'birth_date = :birth_date, '
@@ -140,6 +142,7 @@ try {
         'middle_name' => $middle !== '' ? $middle : null,
         'last_name' => $last,
         'full_name' => $full,
+        'home_address' => $homeAddress !== '' ? $homeAddress : null,
         'agency' => $agency !== '' ? $agency : null,
         'detachment' => $detachment !== '' ? $detachment : null,
         'birth_date' => $birth,
@@ -158,6 +161,7 @@ try {
             'gender' => $gender,
             'birth_date' => $birth ?? '',
             'age' => $computeAge($birth),
+            'home_address' => $homeAddress,
             'agency' => $agency,
             'detachment' => $detachment,
             'full_name' => $full,

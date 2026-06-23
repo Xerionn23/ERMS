@@ -18,10 +18,12 @@ if ((string)($_SESSION['company'] ?? '') !== 'brainmaster') {
 }
 
 $folder = trim((string)($_GET['folder'] ?? ''));
+$sub = trim((string)($_GET['sub'] ?? ''));
 $file = trim((string)($_GET['file'] ?? ''));
 
-$folder = preg_replace('/[^A-Za-z0-9 _.-]/', '', $folder);
-$file = preg_replace('/[^A-Za-z0-9 _.,\-()]/', '', $file);
+$folder = preg_replace('/[^A-Za-z0-9 _.-ñÑáéíóúÁÉÍÓÚ]/', '', $folder);
+$sub = preg_replace('/[^A-Za-z0-9 _.-ñÑáéíóúÁÉÍÓÚ]/', '', $sub);
+$file = preg_replace('/[^A-Za-z0-9 _.,\-()ñÑáéíóúÁÉÍÓÚ]/', '', $file);
 
 if ($folder === '' || $file === '' || strtolower(substr($file, -5)) !== '.docx') {
     http_response_code(400);
@@ -30,7 +32,11 @@ if ($folder === '' || $file === '' || strtolower(substr($file, -5)) !== '.docx')
 }
 
 $exportBase = dirname(__DIR__) . '/export_nuero';
-$path = $exportBase . '/' . $folder . '/' . $file;
+$path = $exportBase . '/' . $folder . '/';
+if ($sub !== '') {
+    $path .= $sub . '/';
+}
+$path .= $file;
 
 $realBase = realpath($exportBase);
 $realPath = realpath($path);

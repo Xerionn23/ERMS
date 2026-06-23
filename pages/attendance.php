@@ -251,7 +251,7 @@ function fetch_batch_records_from_db(PDO $pdo, string $company, string $batch, ?
         . 'AND (:from1 IS NULL OR COALESCE(document_date, DATE(created_at)) >= :from2) '
         . 'AND (:to1 IS NULL OR COALESCE(document_date, DATE(created_at)) <= :to2) '
         . 'AND (:q = \'\' OR CONCAT_WS(\' \' , full_name, first_name, middle_name, last_name, agency, home_address, detachment) LIKE :qlike) '
-        . 'ORDER BY created_at DESC, id DESC '
+        . 'ORDER BY created_at ASC, id ASC '
         . 'LIMIT ' . (int)$limit;
 
     $stmt = $pdo->prepare($sql);
@@ -561,22 +561,29 @@ function export_word_batch_detail(array $rows, string $batch, bool $preview): vo
     echo ".doc-meta{width:100%;border-collapse:collapse;margin:6px 0 10px 0;}";
     echo ".doc-meta td{border:none;font-size:12px;color:#475569;}";
     echo ".doc-meta .right{text-align:right;}";
-    echo ".page{display:flex;flex-direction:column;min-height:273mm;}";
-    echo ".page-body{flex:1 1 auto;}";
+    // Avoid hard-coding A4/height so Legal/Letter/custom sizes won't clip.
+    // Let Word/Printer decide the page size and allow content to flow naturally.
+    echo ".page{display:block;}";
+    echo ".page-body{display:block;}";
     echo ".doc-footer{margin-top:8px;font-size:11px;color:#475569;font-style:italic;display:flex;justify-content:space-between;align-items:center;}";
     echo ".title{font-size:13px;font-weight:700;margin:10px 0 4px 0;text-transform:uppercase;letter-spacing:0.6px;text-align:center;}";
     echo ".subtitle{font-size:12px;color:#475569;margin-bottom:12px;}";
     echo ".preview-bar{display:flex;gap:10px;align-items:center;margin-bottom:16px;}";
     echo ".btn{display:inline-block;padding:6px 12px;border-radius:6px;border:1px solid #1f3a8a;background:#1f3a8a;color:#fff;text-decoration:none;font-size:12px;}";
     echo ".btn.outline{background:#fff;color:#1f3a8a;}";
-    echo "table{width:100%;border-collapse:collapse;margin-top:8px;}";
-    echo "th,td{border:1px solid #cbd5f5;padding:6px 8px;font-size:12px;text-align:left;vertical-align:top;}";
+    // Use fixed table layout + wrapping so long text doesn't force the table wider than the page.
+    echo "table{width:100%;border-collapse:collapse;margin-top:8px;table-layout:fixed;}";
+    echo "th,td{border:1px solid #cbd5f5;padding:6px 8px;font-size:12px;text-align:left;vertical-align:top;word-wrap:break-word;overflow-wrap:anywhere;word-break:break-word;}";
     echo "th{background:#e2e8f0;text-transform:uppercase;font-size:11px;letter-spacing:0.5px;color:#1f2937;}";
     echo ".row-alt td{background:#f8fafc;}";
     echo ".num{font-family:Courier,monospace;text-align:center;width:42px;color:#334155;}";
+    echo "tr{page-break-inside:avoid;break-inside:avoid;}";
+    echo "thead{display:table-header-group;}";
+    echo "tfoot{display:table-footer-group;}";
     echo ".page-break{page-break-after:always;break-after:page;margin-top:24px;}";
-    echo "@page{size:A4;margin:12mm;}";
-    echo "@media print{.preview-bar{display:none;}body{margin:0;} .doc-header{border-bottom:2px solid #0f172a;}}";
+    // Do not force a specific size (A4); keep margins only so any paper size works.
+    echo "@page{margin:12mm;}";
+    echo "@media print{.preview-bar{display:none;}body{margin:0;} th,td{font-size:11px;padding:5px 6px;} .doc-header{border-bottom:2px solid #0f172a;}}";
     echo "</style>\n</head>\n<body>\n";
 
     if ($preview) {
@@ -617,11 +624,11 @@ function export_word_batch_detail(array $rows, string $batch, bool $preview): vo
         echo "</tr>\n</table>\n";
         echo "<div class=\"page-body\">\n";
         echo "<table>\n<thead>\n<tr>";
-        echo "<th class=\"num\">No</th><th>Last Name</th><th>First Name</th><th>M.I</th><th>Gender</th><th>Birth Date</th><th>Age</th><th>Agency</th><th>Detachment</th>";
+        echo "<th class=\"num\">No</th><th>Last Name</th><th>First Name</th><th>M.I</th><th>Gender</th><th>Birth Date</th><th>Age</th><th>Address</th><th>Agency</th><th>Detachment</th>";
         echo "</tr>\n</thead>\n<tbody>\n";
 
         if (!$chunk) {
-            echo "<tr><td colspan=\"9\">No attendance records found for this batch.</td></tr>\n";
+            echo "<tr><td colspan=\"10\">No attendance records found for this batch.</td></tr>\n";
         } else {
             foreach ($chunk as $row) {
                 $age = compute_age($row['age'] ?? '', $row['birth_date_raw'] ?? '', $row['birth_date'] ?? '');
@@ -634,6 +641,7 @@ function export_word_batch_detail(array $rows, string $batch, bool $preview): vo
                 echo "<td>" . htmlspecialchars((string)($row['gender'] ?? ''), ENT_QUOTES, 'UTF-8') . "</td>";
                 echo "<td>" . htmlspecialchars((string)($row['birth_date'] ?? ''), ENT_QUOTES, 'UTF-8') . "</td>";
                 echo "<td class=\"num\">" . htmlspecialchars((string)$age, ENT_QUOTES, 'UTF-8') . "</td>";
+                echo "<td>" . htmlspecialchars((string)($row['home_address'] ?? ''), ENT_QUOTES, 'UTF-8') . "</td>";
                 echo "<td>" . htmlspecialchars((string)($row['agency'] ?? ''), ENT_QUOTES, 'UTF-8') . "</td>";
                 echo "<td>" . htmlspecialchars((string)($row['detachment'] ?? ''), ENT_QUOTES, 'UTF-8') . "</td>";
                 echo "</tr>\n";
@@ -814,6 +822,7 @@ function h(?string $v): string
         .bm-col-gender{width:90px;}
         .bm-col-birth{width:120px;}
         .bm-col-agency{min-width:160px;}
+        .bm-col-address{min-width:200px;}
         .bm-col-batch{min-width:200px;}
         .bm-link{color:var(--navy-700);font-weight:600;text-decoration:none;}
         .bm-link:hover{text-decoration:underline;}
@@ -963,6 +972,7 @@ function h(?string $v): string
                                                 <th class="bm-col-gender">Gender</th>
                                                 <th class="bm-col-birth">Birth Date</th>
                                                 <th class="bm-col-age">Age</th>
+                                                <th class="bm-col-address">Address</th>
                                                 <th class="bm-col-agency">Agency</th>
                                                 <th>Detachment</th>
                                                 <?php if ($role === 'admin' && $usedDb): ?>
@@ -973,7 +983,7 @@ function h(?string $v): string
                                         <tbody>
                                             <?php if (!$rows): ?>
                                                 <tr>
-                                                    <td colspan="<?php echo ($role === 'admin' && $usedDb) ? '10' : '9'; ?>" class="bm-muted" style="padding:16px;">No attendance records found for this batch.</td>
+                                                    <td colspan="<?php echo ($role === 'admin' && $usedDb) ? '11' : '10'; ?>" class="bm-muted" style="padding:16px;">No attendance records found for this batch.</td>
                                                 </tr>
                                             <?php else: ?>
                                                 <?php foreach ($rows as $idx => $row): ?>
@@ -986,6 +996,7 @@ function h(?string $v): string
                                                         <td data-field="gender"><?php echo h($row['gender'] ?? ''); ?></td>
                                                         <td data-field="birth_date"><?php echo h($row['birth_date'] ?? ''); ?></td>
                                                         <td class="bm-num" data-field="age"><?php echo h($age); ?></td>
+                                                        <td data-field="home_address"><?php echo h($row['home_address'] ?? ''); ?></td>
                                                         <td data-field="agency"><?php echo h($row['agency'] ?? ''); ?></td>
                                                         <td data-field="detachment"><?php echo h($row['detachment'] ?? ''); ?></td>
                                                         <?php if ($role === 'admin' && $usedDb): ?>
@@ -1171,7 +1182,7 @@ function h(?string $v): string
                 var id = row.getAttribute('data-attendance-id');
                 if (!id) return;
 
-                var fields = ['last_name', 'first_name', 'middle_name', 'gender', 'birth_date', 'agency', 'detachment'];
+                var fields = ['last_name', 'first_name', 'middle_name', 'gender', 'birth_date', 'home_address', 'agency', 'detachment'];
                 fields.forEach(function (f) {
                     var cell = qs(row, '[data-field="' + f + '"]');
                     if (!cell) return;
@@ -1194,7 +1205,7 @@ function h(?string $v): string
 
             function cancelEdit(row) {
                 if (!row) return;
-                var fields = ['last_name', 'first_name', 'middle_name', 'gender', 'birth_date', 'agency', 'detachment'];
+                var fields = ['last_name', 'first_name', 'middle_name', 'gender', 'birth_date', 'home_address', 'agency', 'detachment'];
                 fields.forEach(function (f) {
                     var cell = qs(row, '[data-field="' + f + '"]');
                     if (!cell) return;
@@ -1231,6 +1242,7 @@ function h(?string $v): string
                     middle_name: val('middle_name'),
                     gender: val('gender'),
                     birth_date: val('birth_date'),
+                    home_address: val('home_address'),
                     agency: val('agency'),
                     detachment: val('detachment')
                 };
@@ -1265,6 +1277,7 @@ function h(?string $v): string
                         middle_name: (typeof rec.middle_name === 'string') ? rec.middle_name : payload.middle_name,
                         gender: (typeof rec.gender === 'string') ? rec.gender : payload.gender,
                         birth_date: (typeof rec.birth_date === 'string') ? rec.birth_date : payload.birth_date,
+                        home_address: (typeof rec.home_address === 'string') ? rec.home_address : payload.home_address,
                         agency: (typeof rec.agency === 'string') ? rec.agency : payload.agency,
                         detachment: (typeof rec.detachment === 'string') ? rec.detachment : payload.detachment
                     };

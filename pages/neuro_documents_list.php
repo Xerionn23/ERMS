@@ -130,75 +130,93 @@ function scan_documents_from_filesystem(string $exportBase): array
     $folders = glob($exportBase . '/*', GLOB_ONLYDIR) ?: [];
     foreach ($folders as $folderPath) {
         $folder = basename($folderPath);
-        $docxFiles = glob($folderPath . '/*.docx') ?: [];
-        foreach ($docxFiles as $filePath) {
-            $fileName = basename($filePath);
-            $meta = [];
-            $metaPath = $filePath . '.json';
-            if (is_file($metaPath)) {
-                $raw = @file_get_contents($metaPath);
-                $json = json_decode((string)$raw, true);
-                if (is_array($json)) {
-                    $meta = $json;
-                }
-            }
 
-            $docType = (string)($meta['document_type'] ?? '');
-            $fullName = (string)($meta['full_name'] ?? '');
-            $docDate = (string)($meta['document_date'] ?? '');
-            $docDateRaw = (string)($meta['document_date_raw'] ?? '');
-            $purpose = (string)($meta['purpose'] ?? '');
-            $purposeSpecify = (string)($meta['purpose_specify'] ?? '');
-
-            if ($docType === '' || $fullName === '') {
-                $baseName = basename($fileName, '.docx');
-                if (stripos($baseName, ' - neuro document') !== false) {
-                    $docType = $docType !== '' ? $docType : 'neuro';
-                    $baseName = str_ireplace(' - neuro document', '', $baseName);
-                } elseif (stripos($baseName, ' - drug test') !== false) {
-                    $docType = $docType !== '' ? $docType : 'drug_test';
-                    $baseName = str_ireplace(' - drug test', '', $baseName);
-                } elseif (stripos($baseName, 'drug test') !== false) {
-                    $docType = $docType !== '' ? $docType : 'drug_test';
+        $collectFiles = function (string $basePath, string $subfolder = '') use (&$documents, $folder): void {
+            $docxFiles = glob($basePath . '/*.docx') ?: [];
+            foreach ($docxFiles as $filePath) {
+                $fileName = basename($filePath);
+                $meta = [];
+                $metaPath = $filePath . '.json';
+                if (is_file($metaPath)) {
+                    $raw = @file_get_contents($metaPath);
+                    $json = json_decode((string)$raw, true);
+                    if (is_array($json)) {
+                        $meta = $json;
+                    }
                 }
 
-                if ($fullName === '') {
-                    $fullName = trim($baseName);
-                }
-            }
+                $docType = (string)($meta['document_type'] ?? '');
+                $fullName = (string)($meta['full_name'] ?? '');
+                $docDate = (string)($meta['document_date'] ?? '');
+                $docDateRaw = (string)($meta['document_date_raw'] ?? '');
+                $purpose = (string)($meta['purpose'] ?? '');
+                $purposeSpecify = (string)($meta['purpose_specify'] ?? '');
 
-            if ($docType === '') {
-                $docType = 'neuro';
-            }
+                if ($docType === '' || $fullName === '') {
+                    $baseName = basename($fileName, '.docx');
+                    if (stripos($baseName, ' - neuro document') !== false) {
+                        $docType = $docType !== '' ? $docType : 'neuro';
+                        $baseName = str_ireplace(' - neuro document', '', $baseName);
+                    } elseif (stripos($baseName, ' - drug test') !== false) {
+                        $docType = $docType !== '' ? $docType : 'drug_test';
+                        $baseName = str_ireplace(' - drug test', '', $baseName);
+                    } elseif (stripos($baseName, 'drug test') !== false) {
+                        $docType = $docType !== '' ? $docType : 'drug_test';
+                    }
 
-            if ($docDate === '' || $docDateRaw === '') {
-                $mtime = @filemtime($filePath) ?: time();
-                if ($docDate === '') {
-                    $docDate = date('F j, Y', $mtime);
+                    if ($fullName === '') {
+                        $fullName = trim($baseName);
+                    }
                 }
+
+                if ($docType === '') {
+                    $docType = 'neuro';
+                }
+
+                if ($docDate === '' || $docDateRaw === '') {
+                    $mtime = @filemtime($filePath) ?: time();
+                    if ($docDate === '') {
+                        $docDate = date('F j, Y', $mtime);
+                    }
+                    if ($docDateRaw === '') {
+                        $docDateRaw = date('Y-m-d', $mtime);
+                    }
+                }
+
                 if ($docDateRaw === '') {
-                    $docDateRaw = date('Y-m-d', $mtime);
+                    $ts = strtotime($docDate);
+                    if ($ts !== false) {
+                        $docDateRaw = date('Y-m-d', $ts);
+                    }
                 }
-            }
 
-            if ($docDateRaw === '') {
-                $ts = strtotime($docDate);
-                if ($ts !== false) {
-                    $docDateRaw = date('Y-m-d', $ts);
+                $pathParts = 'export_nuero/' . $folder . '/';
+                if ($subfolder !== '') {
+                    $pathParts .= $subfolder . '/';
                 }
-            }
+                $pathParts .= $fileName;
 
-            $documents[] = [
-                'date' => $docDate,
-                'date_raw' => $docDateRaw,
-                'name' => $fullName,
-                'purpose' => $purpose,
-                'purpose_specify' => $purposeSpecify,
-                'type' => $docType,
-                'folder' => $folder,
-                'file' => $fileName,
-                'file_path' => 'export_nuero/' . $folder . '/' . $fileName,
-            ];
+                $documents[] = [
+                    'date' => $docDate,
+                    'date_raw' => $docDateRaw,
+                    'name' => $fullName,
+                    'purpose' => $purpose,
+                    'purpose_specify' => $purposeSpecify,
+                    'type' => $docType,
+                    'folder' => $folder,
+                    'subfolder' => $subfolder,
+                    'file' => $fileName,
+                    'file_path' => $pathParts,
+                ];
+            }
+        };
+
+        $collectFiles($folderPath, '');
+
+        $subFolders = glob($folderPath . '/*', GLOB_ONLYDIR) ?: [];
+        foreach ($subFolders as $subPath) {
+            $subName = basename($subPath);
+            $collectFiles($subPath, $subName);
         }
     }
 
@@ -250,7 +268,7 @@ try {
     }
 
     $stmt = $pdo->prepare(
-        'SELECT document_date, full_name, purpose, purpose_specify, document_type, folder_name, file_name, created_at '
+        'SELECT document_date, full_name, purpose, purpose_specify, document_type, folder_name, file_name, file_path, created_at '
         . 'FROM generated_documents '
         . 'WHERE company = :company '
         . 'ORDER BY created_at DESC, id DESC'
@@ -269,6 +287,7 @@ try {
             'type' => (string)($row['document_type'] ?? ''),
             'folder' => (string)($row['folder_name'] ?? ''),
             'file' => (string)($row['file_name'] ?? ''),
+            'file_path' => (string)($row['file_path'] ?? ''),
         ];
     }
 } catch (Throwable $e) {
@@ -429,8 +448,24 @@ try {
                                                         $name = $doc['name'] !== '' ? $doc['name'] : 'Unknown';
                                                         $folder = (string)$doc['folder'];
                                                         $fileName = (string)$doc['file'];
+                                                        $filePath = (string)($doc['file_path'] ?? '');
+                                                        $subfolder = (string)($doc['subfolder'] ?? '');
+                                                        if ($subfolder === '' && $filePath !== '') {
+                                                            $pattern = '#^export_nuero/[^/]+/([^/]+)/[^/]+$#';
+                                                            if (preg_match($pattern, $filePath, $m)) {
+                                                                $subfolder = (string)$m[1];
+                                                            }
+                                                        }
+                                                        $folderDisplay = $folder;
+                                                        if ($subfolder !== '') {
+                                                            $folderDisplay = $folder . '/' . $subfolder;
+                                                        }
+
                                                         $downloadUrl = '../auth/download_export.php?folder=' . rawurlencode($folder) . '&file=' . rawurlencode($fileName);
-                                                        $searchText = safe_lower($name . ' ' . $folder . ' ' . $fileName . ' ' . $typeLabel . ' ' . $purposeLabel);
+                                                        if ($subfolder !== '') {
+                                                            $downloadUrl .= '&sub=' . rawurlencode($subfolder);
+                                                        }
+                                                        $searchText = safe_lower($name . ' ' . $folderDisplay . ' ' . $fileName . ' ' . $typeLabel . ' ' . $purposeLabel);
                                                     ?>
                                                     <tr class="doc-row" data-doc-row="1" data-search="<?php echo htmlspecialchars($searchText, ENT_QUOTES, 'UTF-8'); ?>" data-type="<?php echo htmlspecialchars((string)$doc['type'], ENT_QUOTES, 'UTF-8'); ?>" data-date="<?php echo htmlspecialchars((string)$doc['date_raw'], ENT_QUOTES, 'UTF-8'); ?>">
                                                         <td style="padding:12px 14px;font-size:13px;color:var(--gray-700);white-space:nowrap;">
@@ -443,7 +478,7 @@ try {
                                                             <?php echo htmlspecialchars($purposeDisplay, ENT_QUOTES, 'UTF-8'); ?>
                                                         </td>
                                                         <td style="padding:12px 14px;font-size:12px;color:var(--gray-600);">
-                                                            <?php echo htmlspecialchars($folder, ENT_QUOTES, 'UTF-8'); ?>
+                                                            <?php echo htmlspecialchars($folderDisplay, ENT_QUOTES, 'UTF-8'); ?>
                                                         </td>
                                                         <td style="padding:12px 14px;font-size:12px;color:var(--gray-600);white-space:nowrap;">
                                                             <?php echo htmlspecialchars($fileName, ENT_QUOTES, 'UTF-8'); ?>
@@ -453,8 +488,12 @@ try {
                                                             <?php
                                                             // Check for drug test photo
                                                             if ($doc['type'] === 'drug_test') {
-                                                                $photoDir = $exportBase . '/' . $folder . '/drug_photos/';
-                                                                $fittedPhotoDir = $exportBase . '/' . $folder . '/drug_photos_fitted/';
+                                                                $photoBase = $exportBase . '/' . $folder . '/';
+                                                                if ($subfolder !== '') {
+                                                                    $photoBase .= $subfolder . '/';
+                                                                }
+                                                                $photoDir = $photoBase . 'drug_photos/';
+                                                                $fittedPhotoDir = $photoBase . 'drug_photos_fitted/';
                                                                 $photoFiles = [];
                                                                 if (is_dir($photoDir)) {
                                                                     $photoFiles = glob($photoDir . '*.{jpg,jpeg,png}', GLOB_BRACE);
@@ -466,6 +505,9 @@ try {
                                                                     $photoFile = basename($photoFiles[0]); // Use first photo
                                                                     $photoSub = strpos($photoFile, 'drug-photo-fitted-') === 0 ? 'drug_photos_fitted' : 'drug_photos';
                                                                     $photoDownloadUrl = '../auth/download_photo.php?folder=' . rawurlencode($folder) . '&sub=' . $photoSub . '&file=' . rawurlencode($photoFile);
+                                                                    if ($subfolder !== '') {
+                                                                        $photoDownloadUrl .= '&group=' . rawurlencode($subfolder);
+                                                                    }
                                                                     echo ' <a class="btn btn-s sm" href="' . htmlspecialchars($photoDownloadUrl, ENT_QUOTES, 'UTF-8') . '" title="Download uploaded photo">Photo</a>';
                                                                 }
                                                             }

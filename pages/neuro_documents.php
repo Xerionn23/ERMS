@@ -502,6 +502,8 @@ $roleLabel = $role === 'admin' ? 'Administrator' : 'Employee';
             var purposeSpecifyField = document.getElementById('purpose_specify_field');
             var purposeSpecifyInput = document.getElementById('purpose_specify');
             var purposeChoices = document.getElementById('purpose_choices');
+            var dobInput = document.getElementById('date_of_birth');
+            var ageInput = document.getElementById('age');
             var pvFirearm = document.getElementById('pv_firearm');
             var pvSecurity = document.getElementById('pv_security');
             var pvLto = document.getElementById('pv_lto');
@@ -538,7 +540,8 @@ $roleLabel = $role === 'admin' ? 'Administrator' : 'Employee';
                     drugPhotoField.style.display = needDrugPhoto ? '' : 'none';
                 }
                 if (drugPhotoInput) {
-                    drugPhotoInput.required = needDrugPhoto;
+                    // Photo is optional even in drug/both modes.
+                    drugPhotoInput.required = false;
                     if (!needDrugPhoto) {
                         drugPhotoInput.value = '';
                     }
@@ -654,6 +657,34 @@ $roleLabel = $role === 'admin' ? 'Administrator' : 'Employee';
                 }
 
                 updatePreview();
+            }
+
+            function computeAgeFromDob(dobValue) {
+                if (!dobValue) return '';
+                var parts = String(dobValue).split('-');
+                if (parts.length !== 3) return '';
+                var y = parseInt(parts[0], 10);
+                var m = parseInt(parts[1], 10);
+                var d = parseInt(parts[2], 10);
+                if (!y || !m || !d) return '';
+                var dob = new Date(y, m - 1, d);
+                if (isNaN(dob.getTime())) return '';
+
+                var today = new Date();
+                var age = today.getFullYear() - y;
+                var monthDiff = today.getMonth() - (m - 1);
+                if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < d)) {
+                    age--;
+                }
+
+                if (age < 0) return '';
+                return age;
+            }
+
+            function syncAgeFromDob() {
+                if (!dobInput || !ageInput) return;
+                var age = computeAgeFromDob(dobInput.value);
+                ageInput.value = age === '' ? '' : String(age);
             }
 
             var drugCameraStream = null;
@@ -876,6 +907,11 @@ $roleLabel = $role === 'admin' ? 'Administrator' : 'Employee';
                 purposeSpecifyInput.addEventListener('input', updatePreview);
             }
 
+            if (dobInput && ageInput) {
+                dobInput.addEventListener('change', syncAgeFromDob);
+                dobInput.addEventListener('input', syncAgeFromDob);
+            }
+
             if (documentTypeSelect) {
                 documentTypeSelect.addEventListener('change', applyMode);
             }
@@ -933,6 +969,7 @@ $roleLabel = $role === 'admin' ? 'Administrator' : 'Employee';
 
             purposeSelect.value = '';
             applyMode();
+            syncAgeFromDob();
 
             document.addEventListener('reset', function (e) {
                 var f = e.target;

@@ -18,12 +18,14 @@ if ((string)($_SESSION['company'] ?? '') !== 'brainmaster') {
 }
 
 $folder = trim((string)($_GET['folder'] ?? ''));
+$group = trim((string)($_GET['group'] ?? ''));
 $sub = trim((string)($_GET['sub'] ?? ''));
 $file = trim((string)($_GET['file'] ?? ''));
 
-$folder = preg_replace('/[^A-Za-z0-9 _.-]/', '', $folder);
+$folder = preg_replace('/[^A-Za-z0-9 _.-ñÑáéíóúÁÉÍÓÚ]/', '', $folder);
+$group = preg_replace('/[^A-Za-z0-9 _.-ñÑáéíóúÁÉÍÓÚ]/', '', $group);
 $sub = in_array($sub, ['drug_photos', 'drug_photos_fitted']) ? $sub : '';
-$file = preg_replace('/[^A-Za-z0-9 _.,\-()]/', '', $file);
+$file = preg_replace('/[^A-Za-z0-9 _.,\-()ñÑáéíóúÁÉÍÓÚ]/', '', $file);
 
 if ($folder === '' || $sub === '' || $file === '' || !preg_match('/\.(jpg|jpeg|png)$/i', $file)) {
     http_response_code(400);
@@ -32,7 +34,11 @@ if ($folder === '' || $sub === '' || $file === '' || !preg_match('/\.(jpg|jpeg|p
 }
 
 $exportBase = dirname(__DIR__) . '/export_nuero';
-$path = $exportBase . '/' . $folder . '/' . $sub . '/' . $file;
+$path = $exportBase . '/' . $folder . '/';
+if ($group !== '') {
+    $path .= $group . '/';
+}
+$path .= $sub . '/' . $file;
 
 $realBase = realpath($exportBase);
 $realPath = realpath($path);
