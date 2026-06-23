@@ -20,7 +20,6 @@ if (isset($_SESSION['user_id'])) {
         header('Location: choose_company.php');
         exit;
     }
-
     header('Location: home.php');
     exit;
 }
