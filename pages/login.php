@@ -356,7 +356,7 @@ body{
 
 <!-- Server-rendered login UI (replaces client-side React rendering). -->
 <div class="shell">
-  <div class="left">
+  <div class="left"> 
     <div class="brand">
       <div class="brand-logos">
         <div class="brand-logo">
